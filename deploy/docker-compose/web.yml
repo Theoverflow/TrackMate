@@ -1,0 +1,61 @@
+version: '3.8'
+
+# Web Component - Independent Deployment
+# Includes: Local Dashboard + Central Dashboard
+
+services:
+  local-dashboard:
+    image: ghcr.io/theoverflow/trackmate/local-dashboard:latest
+    container_name: wafer-local-dashboard
+    build:
+      context: ../../components/web
+      dockerfile: Dockerfile.local-dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      - LOCAL_API_URL=http://local-api:18000
+      - REFRESH_INTERVAL_S=5
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - web
+      - data-plane  # Access to data plane
+
+  central-dashboard:
+    image: ghcr.io/theoverflow/trackmate/central-dashboard:latest
+    container_name: wafer-central-dashboard
+    build:
+      context: ../../components/web
+      dockerfile: Dockerfile.central-dashboard
+    ports:
+      - "8502:8502"
+    environment:
+      - CENTRAL_API_URL=http://central-api:19000
+      - REFRESH_INTERVAL_S=10
+      - LOG_LEVEL=INFO
+    command: streamlit run app/streamlit_app.py --server.port=8502
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8502/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - web
+      - data-plane  # Access to data plane
+
+networks:
+  web:
+    name: wafer-web
+    driver: bridge
+  data-plane:
+    external: true
+    name: wafer-data-plane
+

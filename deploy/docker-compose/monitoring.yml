@@ -1,0 +1,40 @@
+version: '3.8'
+
+# Monitoring Component - Independent Deployment
+# Includes: SDK (distributed as library) + Sidecar Agent
+
+services:
+  sidecar-agent:
+    image: ghcr.io/theoverflow/trackmate/sidecar-agent:latest
+    container_name: wafer-sidecar
+    build:
+      context: ../../components/monitoring
+      dockerfile: Dockerfile.sidecar
+    ports:
+      - "17000:17000"  # Sidecar API
+      - "8000:8000"    # Metrics endpoint
+    environment:
+      - INTEGRATION_CONFIG=/config/integrations.json
+      - LOG_LEVEL=INFO
+      - PROMETHEUS_PORT=8000
+    volumes:
+      - ../../examples/integrations:/config:ro
+      - sidecar-spool:/tmp/sidecar-spool
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:17000/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+volumes:
+  sidecar-spool:
+
+networks:
+  monitoring:
+    name: wafer-monitoring
+    driver: bridge
+

@@ -1,6 +1,18 @@
-# Wafer Monitor v2 — Mission-Critical Monitoring System
+# Wafer Monitor v2 / TrackMate — Mission-Critical Monitoring System
 
 **Production-ready monitoring system for semiconductor wafer fabrication with separated environments.**
+
+## 🏗️ 3-Component Architecture
+
+This project is structured into 3 independent components for separate CI/CD pipelines:
+
+| Component | Description | CI/CD | Deploy |
+|-----------|-------------|-------|--------|
+| **[Monitoring](components/monitoring/)** | SDK + Sidecar Agent | [![Monitoring](https://github.com/Theoverflow/TrackMate/actions/workflows/monitoring.yml/badge.svg)](https://github.com/Theoverflow/TrackMate/actions/workflows/monitoring.yml) | [Deploy](deploy/docker-compose/monitoring.yml) |
+| **[Data Plane](components/data-plane/)** | APIs + Database + Archiver | [![Data Plane](https://github.com/Theoverflow/TrackMate/actions/workflows/data-plane.yml/badge.svg)](https://github.com/Theoverflow/TrackMate/actions/workflows/data-plane.yml) | [Deploy](deploy/docker-compose/data-plane.yml) |
+| **[Web](components/web/)** | Local + Central Dashboards | [![Web](https://github.com/Theoverflow/TrackMate/actions/workflows/web.yml/badge.svg)](https://github.com/Theoverflow/TrackMate/actions/workflows/web.yml) | [Deploy](deploy/docker-compose/web.yml) |
+
+See [RESTRUCTURE_SUMMARY.md](RESTRUCTURE_SUMMARY.md) for details on the new architecture.
 
 ## 🌟 Features
 

@@ -76,7 +76,7 @@ temp/
 docker-compose.override.yml
 
 # OS
-Thumbs.db
+Thumbs.ds
 .DS_Store
 
 # Project specific
@@ -84,3 +84,6 @@ Thumbs.db
 /data/
 /backups/
 
+# Old structure (being deprecated)
+apps/
+ops/

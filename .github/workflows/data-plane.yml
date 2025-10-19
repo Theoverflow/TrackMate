@@ -1,0 +1,179 @@
+name: Data Plane Component CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'components/data-plane/**'
+      - 'shared/**'
+      - '.github/workflows/data-plane.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'components/data-plane/**'
+      - 'shared/**'
+
+jobs:
+  test:
+    name: Test Data Plane Component
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+    
+    services:
+      postgres:
+        image: timescale/timescaledb:latest-pg14
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: wafer_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-dataplane-${{ hashFiles('components/data-plane/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-dataplane-
+    
+    - name: Install dependencies
+      run: |
+        cd components/data-plane
+        pip install -e ".[dev]"
+    
+    - name: Setup database
+      env:
+        DATABASE_URL: postgresql://test:test@localhost:5432/wafer_test
+      run: |
+        cd components/data-plane
+        psql $DATABASE_URL -f database/sql/schema.sql
+        psql $DATABASE_URL -f database/sql/timescaledb_enhancements.sql
+    
+    - name: Lint with ruff
+      run: |
+        cd components/data-plane
+        ruff check local-api/ central-api/ archiver/
+    
+    - name: Run tests
+      env:
+        DATABASE_URL: postgresql://test:test@localhost:5432/wafer_test
+      run: |
+        cd components/data-plane
+        pytest tests/ -v --cov=. --cov-report=xml
+    
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        files: components/data-plane/coverage.xml
+        flags: data-plane
+        name: data-plane-${{ matrix.python-version }}
+
+  build-local-api:
+    name: Build Local API Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build and push Local API
+      uses: docker/build-push-action@v5
+      with:
+        context: components/data-plane
+        file: components/data-plane/Dockerfile.local-api
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository }}/local-api:latest
+          ghcr.io/${{ github.repository }}/local-api:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  build-central-api:
+    name: Build Central API Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build and push Central API
+      uses: docker/build-push-action@v5
+      with:
+        context: components/data-plane
+        file: components/data-plane/Dockerfile.central-api
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository }}/central-api:latest
+          ghcr.io/${{ github.repository }}/central-api:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  build-archiver:
+    name: Build Archiver Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build and push Archiver
+      uses: docker/build-push-action@v5
+      with:
+        context: components/data-plane
+        file: components/data-plane/Dockerfile.archiver
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository }}/archiver:latest
+          ghcr.io/${{ github.repository }}/archiver:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
