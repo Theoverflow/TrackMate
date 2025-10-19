@@ -1,0 +1,32 @@
+[
+  {
+    "type": "local_api",
+    "name": "dev-local",
+    "enabled": true,
+    "config": {
+      "base_url": "http://localhost:18000",
+      "timeout": 5.0
+    }
+  },
+  {
+    "type": "json",
+    "name": "debug-export",
+    "enabled": true,
+    "config": {
+      "output_dir": "./debug-logs",
+      "rotation": "none",
+      "pretty_print": true,
+      "compression": false
+    }
+  },
+  {
+    "type": "csv",
+    "name": "csv-debug",
+    "enabled": false,
+    "config": {
+      "output_dir": "./debug-logs",
+      "rotation": "none"
+    }
+  }
+]
+

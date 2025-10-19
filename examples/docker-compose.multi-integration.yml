@@ -1,0 +1,180 @@
+version: '3.8'
+
+services:
+  # Sidecar Agent with Multiple Integrations
+  sidecar-agent:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: python apps/sidecar_agent/main_multi_integration.py
+    environment:
+      # Service config
+      SERVICE_NAME: sidecar-agent
+      LOG_LEVEL: INFO
+      JSON_LOGS: "true"
+      
+      # Spool directory
+      SPOOL_DIR: /var/spool/sidecar
+      DRAIN_INTERVAL_S: "2.0"
+      
+      # Multi-integration configuration
+      INTEGRATIONS_CONFIG: |
+        [
+          {
+            "type": "local_api",
+            "name": "primary-db",
+            "enabled": true,
+            "config": {
+              "base_url": "http://local-api:18000",
+              "timeout": 5.0
+            }
+          },
+          {
+            "type": "elk",
+            "name": "elasticsearch",
+            "enabled": true,
+            "config": {
+              "elasticsearch_url": "http://elasticsearch:9200",
+              "index_prefix": "wafer-monitor",
+              "username": "elastic",
+              "password": "changeme"
+            }
+          },
+          {
+            "type": "zabbix",
+            "name": "zabbix",
+            "enabled": true,
+            "config": {
+              "zabbix_server": "http://zabbix:10051",
+              "host": "wafer-monitor"
+            }
+          },
+          {
+            "type": "csv",
+            "name": "csv-backup",
+            "enabled": true,
+            "config": {
+              "output_dir": "/backup/csv",
+              "rotation": "daily"
+            }
+          }
+        ]
+    volumes:
+      - spool-data:/var/spool/sidecar
+      - backup-data:/backup
+    ports:
+      - "8000:8000"
+    depends_on:
+      - local-api
+      - elasticsearch
+    networks:
+      - monitoring
+
+  # Local API (TimescaleDB)
+  local-api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: python apps/local_api/main.py
+    environment:
+      SERVICE_NAME: local-api
+      DATABASE_URL: postgresql://monitor:password@postgres:5432/monitor
+    ports:
+      - "18000:18000"
+    depends_on:
+      - postgres
+    networks:
+      - monitoring
+
+  # PostgreSQL with TimescaleDB
+  postgres:
+    image: timescale/timescaledb:latest-pg14
+    environment:
+      POSTGRES_DB: monitor
+      POSTGRES_USER: monitor
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../ops/sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - monitoring
+
+  # Elasticsearch
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - monitoring
+
+  # Kibana (optional, for visualization)
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.10.0
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    networks:
+      - monitoring
+
+  # Zabbix Server (simplified)
+  zabbix-server:
+    image: zabbix/zabbix-server-pgsql:alpine-6.0-latest
+    environment:
+      DB_SERVER_HOST: zabbix-postgres
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix
+    ports:
+      - "10051:10051"
+    depends_on:
+      - zabbix-postgres
+    networks:
+      - monitoring
+
+  # Zabbix Database
+  zabbix-postgres:
+    image: postgres:14-alpine
+    environment:
+      POSTGRES_DB: zabbix
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix
+    volumes:
+      - zabbix-db-data:/var/lib/postgresql/data
+    networks:
+      - monitoring
+
+  # Zabbix Web Interface
+  zabbix-web:
+    image: zabbix/zabbix-web-nginx-pgsql:alpine-6.0-latest
+    environment:
+      ZBX_SERVER_HOST: zabbix-server
+      DB_SERVER_HOST: zabbix-postgres
+      POSTGRES_USER: zabbix
+      POSTGRES_PASSWORD: zabbix
+    ports:
+      - "8080:8080"
+    depends_on:
+      - zabbix-server
+      - zabbix-postgres
+    networks:
+      - monitoring
+
+volumes:
+  spool-data:
+  backup-data:
+  postgres-data:
+  elasticsearch-data:
+  zabbix-db-data:
+
+networks:
+  monitoring:
+    driver: bridge
+

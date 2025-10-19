@@ -1,0 +1,32 @@
+[
+  {
+    "type": "local_api",
+    "name": "primary",
+    "enabled": true,
+    "config": {
+      "base_url": "http://local-api:18000"
+    }
+  },
+  {
+    "type": "aws_cloudwatch",
+    "name": "cloudwatch-ec2",
+    "enabled": true,
+    "config": {
+      "aws_region": "us-east-1",
+      "log_group_name": "/wafer-monitor/ec2-jobs",
+      "namespace": "WaferMonitor/Production",
+      "compute_platform": "ec2",
+      "instance_id": "${EC2_INSTANCE_ID}"
+    }
+  },
+  {
+    "type": "aws_xray",
+    "name": "xray-tracing",
+    "enabled": true,
+    "config": {
+      "aws_region": "us-east-1",
+      "service_name": "wafer-monitor-ec2"
+    }
+  }
+]
+

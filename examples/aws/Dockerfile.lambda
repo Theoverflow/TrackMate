@@ -1,0 +1,15 @@
+# Dockerfile for AWS Lambda with monitoring SDK
+FROM public.ecr.aws/lambda/python:3.11
+
+# Copy monitoring SDK
+COPY apps/monitoring_sdk /opt/python/lib/python3.11/site-packages/monitoring_sdk
+
+# Copy Lambda handler
+COPY examples/aws/lambda_handler.py ${LAMBDA_TASK_ROOT}
+
+# Install dependencies
+RUN pip install --no-cache-dir httpx tenacity boto3
+
+# Set the CMD to your handler
+CMD ["lambda_handler.lambda_handler"]
+

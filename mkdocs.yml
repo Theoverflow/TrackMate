@@ -1,0 +1,10 @@
+site_name: Wafer Monitor v2
+theme: { name: material }
+nav:
+  - Overview: docs/index.md
+  - API Reference: docs/API.md
+  - Deployment Guide: docs/DEPLOYMENT.md
+  - Integrations: docs/INTEGRATIONS.md
+  - Multi-Integration Guide: docs/MULTI_INTEGRATION_GUIDE.md
+  - AWS Cloud Integration: docs/AWS_INTEGRATION.md
+  - TimescaleDB Optimization: docs/TIMESCALEDB_OPTIMIZATION.md

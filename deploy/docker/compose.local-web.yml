@@ -1,0 +1,10 @@
+version: '3.9'
+services:
+  web_local:
+    image: python:3.11-slim
+    working_dir: /app
+    command: bash -lc "pip install -e /workspace && streamlit run apps/web_local/streamlit_app.py --server.port 18501 --server.address 0.0.0.0"
+    volumes: ["../..:/workspace"]
+    environment:
+      - LOCAL_API=http://host.docker.internal:18000
+    ports: ["18501:18501"]

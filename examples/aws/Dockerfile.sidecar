@@ -1,0 +1,32 @@
+# Dockerfile for sidecar agent with AWS integrations
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn[standard] \
+    httpx \
+    tenacity \
+    structlog \
+    boto3 \
+    prometheus-client \
+    pydantic \
+    pydantic-settings
+
+# Copy shared utilities (includes AWS integrations)
+COPY apps/shared_utils /app/apps/shared_utils
+
+# Copy sidecar agent
+COPY apps/sidecar_agent /app/apps/sidecar_agent
+
+# Set Python path
+ENV PYTHONPATH=/app
+
+# Expose ports
+EXPOSE 17000 8000
+
+# Run sidecar agent with multi-integration support
+CMD ["python", "-m", "uvicorn", "apps.sidecar_agent.main_multi_integration:app", "--host", "0.0.0.0", "--port", "17000"]
+

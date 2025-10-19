@@ -1,0 +1,56 @@
+[
+  {
+    "type": "local_api",
+    "name": "primary-timescaledb",
+    "enabled": true,
+    "config": {
+      "base_url": "http://local-api:18000",
+      "timeout": 5.0
+    }
+  },
+  {
+    "type": "elk",
+    "name": "elasticsearch-prod",
+    "enabled": true,
+    "config": {
+      "elasticsearch_url": "http://elasticsearch:9200",
+      "index_prefix": "wafer-monitor-prod",
+      "username": "elastic",
+      "password": "${ELASTICSEARCH_PASSWORD}"
+    }
+  },
+  {
+    "type": "zabbix",
+    "name": "zabbix-monitoring",
+    "enabled": true,
+    "config": {
+      "zabbix_server": "http://zabbix:10051",
+      "host": "wafer-monitor-fab1"
+    }
+  },
+  {
+    "type": "csv",
+    "name": "backup-csv",
+    "enabled": true,
+    "config": {
+      "output_dir": "/backup/wafer-monitor/csv",
+      "rotation": "daily",
+      "include_headers": true
+    }
+  },
+  {
+    "type": "webhook",
+    "name": "compliance-system",
+    "enabled": true,
+    "config": {
+      "webhook_url": "https://compliance.company.com/api/events",
+      "method": "POST",
+      "headers": {
+        "Authorization": "Bearer ${COMPLIANCE_API_TOKEN}",
+        "X-Source": "wafer-monitor"
+      },
+      "timeout": 10.0
+    }
+  }
+]
+

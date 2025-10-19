@@ -1,0 +1,36 @@
+[
+  {
+    "type": "zabbix",
+    "name": "zabbix-primary",
+    "enabled": true,
+    "config": {
+      "zabbix_server": "http://zabbix.monitoring.local:10051",
+      "host": "wafer-monitor",
+      "auth_token": "${ZABBIX_AUTH_TOKEN}"
+    }
+  },
+  {
+    "type": "elk",
+    "name": "elk-stack",
+    "enabled": true,
+    "config": {
+      "elasticsearch_url": "http://elasticsearch.monitoring.local:9200",
+      "index_prefix": "monitoring-wafer",
+      "api_key": "${ELASTICSEARCH_API_KEY}"
+    }
+  },
+  {
+    "type": "webhook",
+    "name": "pagerduty",
+    "enabled": true,
+    "config": {
+      "webhook_url": "https://events.pagerduty.com/v2/enqueue",
+      "method": "POST",
+      "headers": {
+        "Authorization": "Token token=${PAGERDUTY_TOKEN}",
+        "Content-Type": "application/json"
+      }
+    }
+  }
+]
+

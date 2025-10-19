@@ -1,0 +1,125 @@
+{
+  "EC2_ECS_TaskRole": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "CloudWatchMetrics",
+        "Effect": "Allow",
+        "Action": [
+          "cloudwatch:PutMetricData"
+        ],
+        "Resource": "*",
+        "Condition": {
+          "StringEquals": {
+            "cloudwatch:namespace": [
+              "WaferMonitor",
+              "WaferMonitor/Production",
+              "WaferMonitor/ECS",
+              "WaferMonitor/Lambda"
+            ]
+          }
+        }
+      },
+      {
+        "Sid": "CloudWatchLogs",
+        "Effect": "Allow",
+        "Action": [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "logs:DescribeLogStreams"
+        ],
+        "Resource": [
+          "arn:aws:logs:*:*:log-group:/wafer-monitor/*",
+          "arn:aws:logs:*:*:log-group:/ecs/wafer-monitor/*"
+        ]
+      },
+      {
+        "Sid": "XRayTracing",
+        "Effect": "Allow",
+        "Action": [
+          "xray:PutTraceSegments",
+          "xray:PutTelemetryRecords",
+          "xray:GetSamplingRules",
+          "xray:GetSamplingTargets"
+        ],
+        "Resource": "*"
+      }
+    ]
+  },
+  "LambdaExecutionRole": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "BasicLambdaExecution",
+        "Effect": "Allow",
+        "Action": [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ],
+        "Resource": "arn:aws:logs:*:*:*"
+      },
+      {
+        "Sid": "CloudWatchMetrics",
+        "Effect": "Allow",
+        "Action": [
+          "cloudwatch:PutMetricData"
+        ],
+        "Resource": "*",
+        "Condition": {
+          "StringEquals": {
+            "cloudwatch:namespace": "WaferMonitor/Lambda"
+          }
+        }
+      },
+      {
+        "Sid": "XRayTracing",
+        "Effect": "Allow",
+        "Action": [
+          "xray:PutTraceSegments",
+          "xray:PutTelemetryRecords"
+        ],
+        "Resource": "*"
+      }
+    ]
+  },
+  "MinimalReadOnlyMonitoring": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "ReadMetrics",
+        "Effect": "Allow",
+        "Action": [
+          "cloudwatch:GetMetricStatistics",
+          "cloudwatch:ListMetrics",
+          "cloudwatch:DescribeAlarms"
+        ],
+        "Resource": "*"
+      },
+      {
+        "Sid": "ReadLogs",
+        "Effect": "Allow",
+        "Action": [
+          "logs:DescribeLogGroups",
+          "logs:DescribeLogStreams",
+          "logs:GetLogEvents",
+          "logs:FilterLogEvents"
+        ],
+        "Resource": "arn:aws:logs:*:*:log-group:/wafer-monitor/*"
+      },
+      {
+        "Sid": "ReadXRay",
+        "Effect": "Allow",
+        "Action": [
+          "xray:GetServiceGraph",
+          "xray:GetTraceSummaries",
+          "xray:GetTraceGraph",
+          "xray:BatchGetTraces"
+        ],
+        "Resource": "*"
+      }
+    ]
+  }
+}
+

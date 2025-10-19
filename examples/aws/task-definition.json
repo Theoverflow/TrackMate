@@ -1,0 +1,77 @@
+{
+  "family": "wafer-monitor-ecs-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "containerDefinitions": [
+    {
+      "name": "wafer-processor",
+      "image": "YOUR_ECR_REPO/wafer-monitor-ecs:latest",
+      "essential": true,
+      "environment": [
+        {
+          "name": "SIDECAR_URL",
+          "value": "http://sidecar-agent:17000"
+        },
+        {
+          "name": "SITE_ID",
+          "value": "site1"
+        },
+        {
+          "name": "AWS_REGION",
+          "value": "us-east-1"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/wafer-monitor",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    },
+    {
+      "name": "sidecar-agent",
+      "image": "YOUR_ECR_REPO/wafer-sidecar:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 17000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "INTEGRATION_CONFIG",
+          "value": "/config/aws-ecs.json"
+        }
+      ],
+      "mountPoints": [
+        {
+          "sourceVolume": "config",
+          "containerPath": "/config",
+          "readOnly": true
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/wafer-monitor-sidecar",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "sidecar"
+        }
+      }
+    }
+  ],
+  "volumes": [
+    {
+      "name": "config",
+      "host": {}
+    }
+  ],
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/wafer-monitor-task-role"
+}
+

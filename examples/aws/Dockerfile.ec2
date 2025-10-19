@@ -1,0 +1,20 @@
+# Dockerfile for EC2 deployment with monitoring
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir httpx tenacity boto3 structlog
+
+# Copy monitoring SDK
+COPY apps/monitoring_sdk /app/monitoring_sdk
+
+# Copy application code
+COPY examples/aws/ec2_job.py /app/
+
+# Set Python path
+ENV PYTHONPATH=/app
+
+CMD ["python", "ec2_job.py"]
+

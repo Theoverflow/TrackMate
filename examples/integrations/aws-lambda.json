@@ -1,0 +1,23 @@
+[
+  {
+    "type": "aws_cloudwatch",
+    "name": "cloudwatch-lambda",
+    "enabled": true,
+    "config": {
+      "aws_region": "us-east-1",
+      "log_group_name": "/wafer-monitor/lambda-functions",
+      "namespace": "WaferMonitor/Lambda",
+      "compute_platform": "lambda"
+    }
+  },
+  {
+    "type": "aws_xray",
+    "name": "xray-lambda",
+    "enabled": true,
+    "config": {
+      "aws_region": "us-east-1",
+      "service_name": "wafer-monitor-lambda"
+    }
+  }
+]
+

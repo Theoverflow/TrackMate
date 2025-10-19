@@ -1,0 +1,40 @@
+[
+  {
+    "type": "local_api",
+    "name": "primary",
+    "enabled": true,
+    "config": {
+      "base_url": "http://local-api:18000"
+    }
+  },
+  {
+    "type": "aws_cloudwatch",
+    "name": "cloudwatch-ecs",
+    "enabled": true,
+    "config": {
+      "aws_region": "us-east-1",
+      "log_group_name": "/wafer-monitor/ecs-tasks",
+      "namespace": "WaferMonitor/ECS",
+      "compute_platform": "ecs"
+    }
+  },
+  {
+    "type": "aws_xray",
+    "name": "xray-ecs",
+    "enabled": true,
+    "config": {
+      "aws_region": "us-east-1",
+      "service_name": "wafer-monitor-ecs"
+    }
+  },
+  {
+    "type": "csv",
+    "name": "efs-backup",
+    "enabled": true,
+    "config": {
+      "output_dir": "/mnt/efs/wafer-logs",
+      "rotation": "daily"
+    }
+  }
+]
+

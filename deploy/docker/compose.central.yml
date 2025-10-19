@@ -1,0 +1,20 @@
+version: '3.9'
+services:
+  central_api:
+    image: python:3.11-slim
+    working_dir: /app
+    command: bash -lc "pip install -e /workspace && python -m uvicorn apps.central_api.main:app --host 0.0.0.0 --port 19000"
+    volumes: ["../..:/workspace"]
+    environment:
+      - SITES=fab1=http://host.docker.internal:18000
+    ports: ["19000:19000"]
+  web_central:
+    image: python:3.11-slim
+    working_dir: /app
+    command: bash -lc "pip install -e /workspace && streamlit run apps/web_central/streamlit_app.py --server.port 19501 --server.address 0.0.0.0"
+    volumes: ["../..:/workspace"]
+    environment:
+      - CENTRAL_API=http://central_api:19000
+      - DEFAULT_SITE=fab1
+    ports: ["19501:19501"]
+    depends_on: [central_api]

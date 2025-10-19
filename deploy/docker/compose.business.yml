@@ -1,0 +1,11 @@
+version: '3.9'
+services:
+  sidecar_agent:
+    image: python:3.11-slim
+    working_dir: /app
+    command: bash -lc "pip install -e /workspace && python -m uvicorn apps.sidecar_agent.main:app --host 0.0.0.0 --port 8000"
+    volumes: ["../..:/workspace"]
+    environment:
+      - LOCAL_API_BASE=http://host.docker.internal:18000  # For dev
+      - SPOOL_DIR=/tmp/sidecar-spool
+    ports: ["8000:8000"]
