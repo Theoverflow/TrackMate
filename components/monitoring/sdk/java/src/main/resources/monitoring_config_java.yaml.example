@@ -1,0 +1,41 @@
+# Runtime Configuration Example for Java SDK
+#
+# This file can be edited while the Java application is running.
+# The SDK will automatically detect changes and reload the configuration.
+#
+# NO JVM RESTART REQUIRED!
+
+mode: SIDECAR  # or DIRECT
+
+appName: runtime-config-java-example
+appVersion: 1.0.0
+siteId: fab1
+instanceId: java-runtime-001
+
+# Sidecar mode configuration
+sidecarUrl: http://localhost:17000
+timeout: 5.0
+maxRetries: 3
+
+# For direct mode, you would configure backendType and backendConfig instead:
+# mode: DIRECT
+# backendType: FILESYSTEM
+# backendConfig:
+#   outputDir: ./monitoring_events
+#   filenamePrefix: java_events
+
+# USAGE:
+#
+# 1. Start with SIDECAR mode (default)
+# 2. While application runs, change sidecarUrl
+# 3. Save file - SDK auto-reloads via WatchService
+# 4. Or switch to DIRECT mode by changing mode: DIRECT
+# 5. All changes happen live without JVM restart!
+#
+# Example changes to try:
+# - Change sidecarUrl to different endpoint
+# - Switch mode from SIDECAR to DIRECT
+# - Modify timeout or maxRetries values
+# - See reload messages in application output
+# - Monitor with JMX for advanced observability
+

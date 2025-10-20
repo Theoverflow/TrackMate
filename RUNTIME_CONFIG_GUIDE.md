@@ -2,7 +2,7 @@
 
 **Version:** 0.3.0+  
 **Date:** 2025-10-20  
-**Status:** Implemented for C and Python SDKs
+**Status:** Implemented for All SDKs (C, Python, R, Perl, Java)
 
 ---
 
@@ -33,10 +33,13 @@ Runtime configuration enables **dynamic backend routing** without recompiling or
 
 1. [C SDK Runtime Config](#c-sdk-runtime-config)
 2. [Python SDK Runtime Config](#python-sdk-runtime-config)
-3. [Configuration File Format](#configuration-file-format)
-4. [Examples](#examples)
-5. [Best Practices](#best-practices)
-6. [Troubleshooting](#troubleshooting)
+3. [R SDK Runtime Config](#r-sdk-runtime-config)
+4. [Perl SDK Runtime Config](#perl-sdk-runtime-config)
+5. [Java SDK Runtime Config](#java-sdk-runtime-config)
+6. [Configuration File Format](#configuration-file-format)
+7. [Examples](#examples)
+8. [Best Practices](#best-practices)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -468,6 +471,202 @@ if not status['last_reload_success']:
 
 ---
 
+## 🔷 R SDK Runtime Config
+
+### Basic Usage
+
+```r
+library(monitoring)
+
+# Default configuration (fallback)
+default_config <- list(
+  mode = "sidecar",
+  app_name = "my-r-app",
+  app_version = "1.0.0",
+  site_id = "fab1",
+  sidecar_url = "http://localhost:17000"
+)
+
+# Reload callback
+on_reload <- function(success, message) {
+  if (success) {
+    message("✓ Config reloaded: ", message)
+  } else {
+    warning("✗ Config reload failed: ", message)
+  }
+}
+
+# Initialize with runtime config
+monitoring_init_with_runtime_config(
+  config_file = "monitoring_config.yaml",
+  default_config = default_config,
+  auto_reload = TRUE,
+  check_interval = 30,  # seconds
+  on_reload = on_reload,
+  use_fallback = TRUE
+)
+
+# Application runs... config changes are auto-detected
+
+# Manual reload if needed
+monitoring_reload_runtime_config()
+
+# Query status
+status <- monitoring_get_runtime_status()
+print(status)
+
+# Cleanup
+monitoring_shutdown_runtime_config()
+```
+
+### Dependencies
+
+```r
+# Install required packages
+install.packages("yaml")      # For YAML config files
+install.packages("later")     # For auto-reload (optional but recommended)
+```
+
+### File Watching
+
+R SDK uses the `later` package to schedule periodic checks for file changes. If `later` is not installed, auto-reload will be disabled and you'll need to use manual reload.
+
+---
+
+## 🔶 Perl SDK Runtime Config
+
+### Basic Usage
+
+```perl
+use Monitoring::RuntimeConfig;
+
+# Default configuration (fallback)
+my $default_config = {
+    mode => 'sidecar',
+    app_name => 'my-perl-app',
+    app_version => '1.0.0',
+    site_id => 'fab1',
+    sidecar_url => 'http://localhost:17000'
+};
+
+# Reload callback
+my $on_reload = sub {
+    my ($success, $message) = @_;
+    if ($success) {
+        print "✓ Config reloaded: $message\n";
+    } else {
+        warn "✗ Config reload failed: $message\n";
+    }
+};
+
+# Initialize with runtime config
+Monitoring::RuntimeConfig->init_with_runtime_config(
+    config_file => 'monitoring_config.yaml',
+    default_config => $default_config,
+    auto_reload => 1,
+    check_interval => 30,  # seconds
+    on_reload => $on_reload,
+    use_fallback => 1
+);
+
+# Application runs... config changes are auto-detected
+
+# Manual reload if needed
+Monitoring::RuntimeConfig->reload_runtime_config();
+
+# Query status
+my $status = Monitoring::RuntimeConfig->get_runtime_status();
+print "Last reload: ", $status->{last_reload_time}, "\n";
+
+# Cleanup
+Monitoring::RuntimeConfig->shutdown_runtime_config();
+```
+
+### Dependencies
+
+```bash
+# Install required CPAN modules
+cpanm YAML::XS
+cpanm JSON::PP
+```
+
+### File Watching
+
+Perl SDK uses a forked background process to monitor file changes. The watcher runs independently and notifies the main process when the config file is modified.
+
+---
+
+## ☕ Java SDK Runtime Config
+
+### Basic Usage
+
+```java
+import io.wafermonitor.monitoring.*;
+
+// Default configuration (fallback)
+MonitoringConfig defaultConfig = MonitoringConfig.builder()
+    .mode(Mode.SIDECAR)
+    .appName("my-java-app")
+    .appVersion("1.0.0")
+    .siteId("fab1")
+    .sidecarUrl("http://localhost:17000")
+    .build();
+
+// Reload callback
+BiConsumer<Boolean, String> onReload = (success, message) -> {
+    if (success) {
+        System.out.println("✓ Config reloaded: " + message);
+    } else {
+        System.err.println("✗ Config reload failed: " + message);
+    }
+};
+
+// Initialize with runtime config
+RuntimeConfigManager manager = RuntimeConfigManager.getInstance();
+manager.initWithRuntimeConfig(
+    "monitoring_config.yaml",  // config file
+    defaultConfig,             // fallback
+    true,                      // auto-reload
+    30,                        // check interval (seconds)
+    onReload,                  // callback
+    true                       // use fallback
+);
+
+// Application runs... config changes are auto-detected
+
+// Manual reload if needed
+manager.reloadConfig();
+
+// Query status
+RuntimeConfigManager.RuntimeStatus status = manager.getStatus();
+System.out.println("Auto-reload: " + status.isAutoReload());
+
+// Cleanup
+manager.shutdown();
+```
+
+### Dependencies
+
+```xml
+<!-- Add to pom.xml -->
+<dependency>
+    <groupId>com.fasterxml.jackson.core</groupId>
+    <artifactId>jackson-databind</artifactId>
+    <version>2.15.0</version>
+</dependency>
+<dependency>
+    <groupId>com.fasterxml.jackson.dataformat</groupId>
+    <artifactId>jackson-dataformat-yaml</artifactId>
+    <version>2.15.0</version>
+</dependency>
+```
+
+### File Watching
+
+Java SDK uses the NIO.2 `WatchService` API to efficiently monitor file changes. This provides native OS-level file system notifications without polling.
+
+---
+
 ## 🔍 Troubleshooting
 
 ### Problem: Config Not Reloading
@@ -567,9 +766,22 @@ if not status['last_reload_success']:
 
 ## 📚 Additional Resources
 
+### SDK Documentation
 - [C SDK API Reference](components/monitoring/sdk/c/README.md)
 - [Python SDK API Reference](components/monitoring/sdk/python/README.md)
-- [Examples Directory](components/monitoring/sdk/c/examples/)
+- [R SDK Documentation](components/monitoring/sdk/r/README.md)
+- [Perl SDK Documentation](components/monitoring/sdk/perl/README.md)
+- [Java SDK JavaDoc](components/monitoring/sdk/java/README.md)
+
+### Examples
+- [C Examples](components/monitoring/sdk/c/examples/)
+- [Python Examples](components/monitoring/sdk/python/examples/)
+- [R Examples](components/monitoring/sdk/r/examples/)
+- [Perl Examples](components/monitoring/sdk/perl/examples/)
+- [Java Examples](components/monitoring/sdk/java/src/main/java/io/wafermonitor/monitoring/examples/)
+
+### Other
+- [Runtime Config Summary](RUNTIME_CONFIG_SUMMARY.md)
 - [Configuration Schema](docs/config-schema.md)
 
 ---

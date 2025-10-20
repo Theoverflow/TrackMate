@@ -1,0 +1,40 @@
+# Runtime Configuration Example for Perl SDK
+#
+# This file can be edited while the Perl application is running.
+# The SDK will automatically detect changes and reload the configuration.
+#
+# NO PERL PROCESS RESTART REQUIRED!
+
+mode: "sidecar"  # or "direct"
+
+app_name: "runtime-config-perl-example"
+app_version: "1.0.0"
+site_id: "fab1"
+instance_id: "perl-runtime-001"
+
+# Sidecar mode configuration
+sidecar_url: "http://localhost:17000"
+timeout: 5.0
+max_retries: 3
+
+# For direct mode, you would configure backend_type and backend_config instead:
+# mode: "direct"
+# backend_type: "filesystem"
+# backend_config:
+#   output_dir: "./monitoring_events"
+#   filename_prefix: "perl_events"
+
+# USAGE:
+#
+# 1. Start with sidecar mode (default)
+# 2. While application runs, change sidecar_url
+# 3. Save file - SDK auto-reloads in background process
+# 4. Or switch to direct mode by changing mode: "direct"
+# 5. All changes happen live without Perl process restart!
+#
+# Example changes to try:
+# - Change sidecar_url to different endpoint
+# - Switch mode from "sidecar" to "direct"
+# - Modify timeout or max_retries values
+# - See reload messages in application output
+
