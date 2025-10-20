@@ -1,0 +1,45 @@
+# Example configuration for direct mode with multiple backends
+
+sdk:
+  mode: direct  # Direct to backends (bypass sidecar)
+  
+  # Sidecar config (not used in direct mode)
+  sidecar:
+    url: http://localhost:17000
+  
+  # Direct backends configuration
+  direct_backends:
+    # Priority 1: Write to local filesystem (backup)
+    - type: filesystem
+      enabled: true
+      priority: 1
+      config:
+        path: /tmp/monitoring-events
+        format: jsonl
+        rotate_size_mb: 50
+    
+    # Priority 2: Upload to S3 (archival)
+    - type: s3
+      enabled: true
+      priority: 2
+      config:
+        bucket: wafer-monitoring-events
+        region: us-east-1
+        prefix: events/
+        batch_size: 100
+    
+    # Priority 3: Index in Elasticsearch (search)
+    - type: elk
+      enabled: true
+      priority: 3
+      config:
+        url: http://elasticsearch:9200
+        index: monitoring
+        batch_size: 50
+  
+  # Application metadata
+  app:
+    name: wafer-processor-direct
+    version: 1.0.0
+    site_id: fab1
+
