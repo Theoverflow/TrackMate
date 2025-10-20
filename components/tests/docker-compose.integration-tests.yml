@@ -1,0 +1,113 @@
+version: '3.8'
+
+services:
+  # Python Integration Tests
+  test-python:
+    build:
+      context: ../..
+      dockerfile: components/tests/integration/python/Dockerfile
+    container_name: wafer-test-python
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SIDECAR_URL=http://sidecar:17000
+    volumes:
+      - ../../examples/business_apps:/workspace/apps:ro
+      - ../../components/monitoring/sdk:/workspace/monitoring_sdk:ro
+      - ../../shared:/workspace/shared:ro
+    networks:
+      - test-network
+    command: ["pytest", "/workspace/tests/", "-v", "--cov", "--cov-report=html:/workspace/coverage/python"]
+
+  # Java Integration Tests
+  test-java:
+    build:
+      context: ../..
+      dockerfile: components/tests/integration/java/Dockerfile
+    container_name: wafer-test-java
+    environment:
+      - SIDECAR_URL=http://sidecar:17000
+      - JAVA_OPTS=-Xmx512m
+    volumes:
+      - ../../examples/business_apps:/workspace/apps:ro
+      - ./integration/java/test-results:/workspace/test-results
+    networks:
+      - test-network
+    command: ["/workspace/tests/test_java_integration.sh"]
+
+  # C Integration Tests
+  test-c:
+    build:
+      context: ../..
+      dockerfile: components/tests/integration/c/Dockerfile
+    container_name: wafer-test-c
+    environment:
+      - SIDECAR_URL=http://sidecar:17000
+    volumes:
+      - ../../examples/business_apps:/workspace/apps:ro
+      - ./integration/c/test-results:/workspace/test-results
+    networks:
+      - test-network
+    cap_add:
+      - SYS_PTRACE  # Required for valgrind
+    command: ["/workspace/tests/test_c_integration.sh"]
+
+  # Perl Integration Tests
+  test-perl:
+    build:
+      context: ../..
+      dockerfile: components/tests/integration/perl/Dockerfile
+    container_name: wafer-test-perl
+    environment:
+      - SIDECAR_URL=http://sidecar:17000
+      - PERL5LIB=/workspace/lib
+    volumes:
+      - ../../examples/business_apps:/workspace/apps:ro
+      - ./integration/perl/test-results:/workspace/test-results
+    networks:
+      - test-network
+    command: ["perl", "/workspace/tests/test_perl_integration.pl"]
+
+  # Mock Sidecar for Integration Tests
+  sidecar:
+    image: python:3.11-slim
+    container_name: wafer-test-sidecar-mock
+    ports:
+      - "17000:17000"
+    networks:
+      - test-network
+    command: |
+      bash -c "
+        pip install --no-cache-dir fastapi uvicorn &&
+        python -c '
+from fastapi import FastAPI
+import uvicorn
+
+app = FastAPI()
+
+@app.post(\"/events\")
+async def receive_event(event: dict):
+    print(f\"Received event: {event}\")
+    return {\"status\": \"ok\"}
+
+@app.get(\"/health\")
+async def health():
+    return {\"status\": \"healthy\"}
+
+if __name__ == \"__main__\":
+    uvicorn.run(app, host=\"0.0.0.0\", port=17000)
+        '
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:17000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+networks:
+  test-network:
+    driver: bridge
+
+volumes:
+  test-coverage:
+  test-results:
+

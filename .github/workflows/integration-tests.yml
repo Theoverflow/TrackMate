@@ -1,0 +1,246 @@
+name: Integration Tests (Multi-Language)
+
+on:
+  push:
+    branches: [ main, develop, feature/* ]
+    paths:
+      - 'components/tests/integration/**'
+      - 'examples/business_apps/**'
+      - 'components/monitoring/sdk/**'
+      - '.github/workflows/integration-tests.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'components/tests/integration/**'
+      - 'examples/business_apps/**'
+      - 'components/monitoring/sdk/**'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_PREFIX: ${{ github.repository_owner }}/wafer-monitor-test
+
+jobs:
+  # Pre-build all test containers in parallel
+  build-test-containers:
+    name: Build Test Containers
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        language: [python, java, c, perl]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-${{ matrix.language }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push ${{ matrix.language }} test image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: components/tests/integration/${{ matrix.language }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.language }}-test
+          cache-to: type=gha,mode=max,scope=${{ matrix.language }}-test
+          platforms: linux/amd64
+
+  # Run Python integration tests
+  test-python:
+    name: Python Integration Tests
+    runs-on: ubuntu-latest
+    needs: build-test-containers
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull Python test image
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-python:${{ github.sha }}
+
+      - name: Run Python tests
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/test-results:/workspace/test-results \
+            -e PYTHONUNBUFFERED=1 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-python:${{ github.sha }}
+
+      - name: Upload Python test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-test-results
+          path: test-results/
+          retention-days: 7
+
+      - name: Upload Python coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage
+          path: coverage/
+          retention-days: 7
+
+  # Run Java integration tests
+  test-java:
+    name: Java Integration Tests
+    runs-on: ubuntu-latest
+    needs: build-test-containers
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull Java test image
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-java:${{ github.sha }}
+
+      - name: Run Java tests
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/test-results:/workspace/test-results \
+            -e JAVA_OPTS="-Xmx512m" \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-java:${{ github.sha }}
+
+      - name: Upload Java test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-test-results
+          path: test-results/
+          retention-days: 7
+
+  # Run C integration tests
+  test-c:
+    name: C Integration Tests
+    runs-on: ubuntu-latest
+    needs: build-test-containers
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull C test image
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-c:${{ github.sha }}
+
+      - name: Run C tests
+        run: |
+          docker run --rm \
+            --cap-add=SYS_PTRACE \
+            -v ${{ github.workspace }}/test-results:/workspace/test-results \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-c:${{ github.sha }}
+
+      - name: Upload C test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: c-test-results
+          path: test-results/
+          retention-days: 7
+
+  # Run Perl integration tests
+  test-perl:
+    name: Perl Integration Tests
+    runs-on: ubuntu-latest
+    needs: build-test-containers
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull Perl test image
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-perl:${{ github.sha }}
+
+      - name: Run Perl tests
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}/test-results:/workspace/test-results \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}-perl:${{ github.sha }}
+
+      - name: Upload Perl test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perl-test-results
+          path: test-results/
+          retention-days: 7
+
+  # Summary job
+  test-summary:
+    name: Integration Tests Summary
+    runs-on: ubuntu-latest
+    needs: [test-python, test-java, test-c, test-perl]
+    if: always()
+    
+    steps:
+      - name: Check test results
+        run: |
+          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Language | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Python | ${{ needs.test-python.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Java | ${{ needs.test-java.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| C | ${{ needs.test-c.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Perl | ${{ needs.test-perl.result }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail if any test failed
+        if: |
+          needs.test-python.result == 'failure' ||
+          needs.test-java.result == 'failure' ||
+          needs.test-c.result == 'failure' ||
+          needs.test-perl.result == 'failure'
+        run: exit 1
+
