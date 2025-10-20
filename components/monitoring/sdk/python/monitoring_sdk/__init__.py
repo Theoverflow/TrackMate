@@ -28,40 +28,39 @@ from .backends import (
     ELKBackend
 )
 
-# AWS helpers are optional
+# Runtime configuration (hot-reloading)
+try:
+    from .runtime_config import RuntimeConfigManager, init_with_runtime_config
+    _has_runtime_config = True
+except ImportError:
+    _has_runtime_config = False
+
+# Build exports list
+__all__ = [
+    # Core SDK
+    'AppRef', 'EntityRef', 'EventPayload', 'JobEvent',
+    'SidecarEmitter', 'Monitored',
+    # Configuration
+    'MonitoringConfig', 'SDKMode', 'BackendType',
+    'SidecarConfig', 'BackendConfig', 'AppConfig',
+    'configure', 'get_config', 'reset_config',
+    # Routing
+    'BackendRouter',
+    # Backends
+    'Backend', 'BackendResult',
+    'SidecarBackend', 'FileSystemBackend', 'S3Backend', 'ELKBackend',
+]
+
+# Add AWS helpers if available
 try:
     from . import aws_helpers
-    __all__ = [
-        # Core SDK
-        'AppRef', 'EntityRef', 'EventPayload', 'JobEvent',
-        'SidecarEmitter', 'Monitored',
-        # Configuration
-        'MonitoringConfig', 'SDKMode', 'BackendType',
-        'SidecarConfig', 'BackendConfig', 'AppConfig',
-        'configure', 'get_config', 'reset_config',
-        # Routing
-        'BackendRouter',
-        # Backends
-        'Backend', 'BackendResult',
-        'SidecarBackend', 'FileSystemBackend', 'S3Backend', 'ELKBackend',
-        # AWS
-        'aws_helpers'
-    ]
+    __all__.append('aws_helpers')
 except ImportError:
-    __all__ = [
-        # Core SDK
-        'AppRef', 'EntityRef', 'EventPayload', 'JobEvent',
-        'SidecarEmitter', 'Monitored',
-        # Configuration
-        'MonitoringConfig', 'SDKMode', 'BackendType',
-        'SidecarConfig', 'BackendConfig', 'AppConfig',
-        'configure', 'get_config', 'reset_config',
-        # Routing
-        'BackendRouter',
-        # Backends
-        'Backend', 'BackendResult',
-        'SidecarBackend', 'FileSystemBackend', 'S3Backend', 'ELKBackend'
-    ]
+    pass
+
+# Add runtime config if available
+if _has_runtime_config:
+    __all__.extend(['RuntimeConfigManager', 'init_with_runtime_config'])
 
 __version__ = "0.3.0"
 

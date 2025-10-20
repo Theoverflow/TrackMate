@@ -1,0 +1,92 @@
+# Runtime Configuration Example for Python SDK
+#
+# This file can be edited while the application is running.
+# The SDK will automatically detect changes and reload the configuration.
+#
+# NO APPLICATION RESTART REQUIRED!
+
+mode: "direct"  # or "sidecar"
+
+app:
+  name: "runtime-config-example"
+  version: "1.0.0"
+  site_id: "fab1"
+  instance_id: "runtime-001"
+
+# For direct mode, configure multiple backends
+backends:
+  # Local filesystem backup
+  - type: "filesystem"
+    name: "local-fs"
+    enabled: true
+    priority: 1
+    config:
+      output_dir: "./monitoring_events"
+      filename_prefix: "events"
+      max_file_size_mb: 100
+  
+  # Local sidecar (for managed TimescaleDB)
+  - type: "sidecar"
+    name: "local-sidecar"
+    enabled: true
+    priority: 2
+    config:
+      url: "http://localhost:17000"
+      timeout: 5.0
+      max_retries: 3
+  
+  # S3 backup (can be added at runtime!)
+  # - type: "s3"
+  #   name: "s3-backup"
+  #   enabled: true
+  #   priority: 3
+  #   config:
+  #     bucket_name: "monitoring-events"
+  #     prefix: "monitoring_events"
+  #     region_name: "us-east-1"
+  
+  # Elasticsearch (can be added at runtime!)
+  # - type: "elk"
+  #   name: "elasticsearch"
+  #   enabled: true
+  #   priority: 4
+  #   config:
+  #     hosts: ["http://localhost:9200"]
+  #     index_name: "monitoring-events-{now/d}"
+  
+  # Kafka enterprise cluster (can be added at runtime!)
+  # - type: "kafka"  # Note: Requires Kafka backend implementation
+  #   name: "kafka-enterprise"
+  #   enabled: true
+  #   priority: 5
+  #   config:
+  #     brokers: "kafka1:9092,kafka2:9092,kafka3:9092"
+  #     topic: "monitoring-events"
+  #     compression: "snappy"
+
+# For sidecar mode (alternative configuration)
+# mode: "sidecar"
+# sidecar:
+#   url: "http://localhost:17000"
+#   timeout: 5.0
+#   max_retries: 3
+
+# Logging configuration
+log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+
+# Optional: OpenTelemetry tracing
+enable_tracing: false
+otlp_endpoint: "http://localhost:4317"
+
+# USAGE EXAMPLES:
+#
+# 1. Start with basic config (filesystem + sidecar)
+# 2. While application runs, uncomment S3 backend
+# 3. Save file - SDK auto-reloads and starts using S3
+# 4. Add Elasticsearch by uncommenting ELK backend
+# 5. Save file - SDK adds ELK without restart
+# 6. Disable filesystem by setting enabled: false
+# 7. Save file - SDK stops using filesystem
+#
+# All changes happen live without application restart!
+
