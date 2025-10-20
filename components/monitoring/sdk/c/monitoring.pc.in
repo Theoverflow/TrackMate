@@ -1,0 +1,12 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: monitoring
+Description: Wafer Monitor C SDK
+Version: @PROJECT_VERSION@
+Requires: libcurl
+Libs: -L${libdir} -lmonitoring -lpthread
+Cflags: -I${includedir}
+

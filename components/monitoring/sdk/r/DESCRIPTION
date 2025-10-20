@@ -1,0 +1,30 @@
+Package: monitoring
+Type: Package
+Title: Wafer Monitor R SDK
+Version: 0.3.0
+Date: 2025-10-20
+Authors@R: c(
+    person("Wafer Monitor Team", role = c("aut", "cre"), email = "team@wafer-monitor.io")
+    )
+Description: R client library for monitoring distributed applications and sending
+    events to the Wafer Monitor system. Supports both sidecar and direct modes with
+    multiple backend options (sidecar, filesystem, S3, Elasticsearch).
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 3.5.0)
+Imports:
+    httr (>= 1.4.0),
+    jsonlite (>= 1.7.0),
+    uuid (>= 0.1-4),
+    R6 (>= 2.5.0)
+Suggests:
+    testthat (>= 3.0.0),
+    mockery,
+    knitr,
+    rmarkdown
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.2.0
+VignetteBuilder: knitr
+URL: https://github.com/your-org/wafer-monitor
+BugReports: https://github.com/your-org/wafer-monitor/issues
+
