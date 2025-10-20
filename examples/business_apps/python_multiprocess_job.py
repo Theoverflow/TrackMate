@@ -22,8 +22,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "apps"))
 try:
     from monitoring_sdk import AppRef, Monitored, SidecarEmitter
 except ImportError:
-    # Try alternate import path
-    from monitoring_sdk.monitoring_sdk import AppRef, Monitored, SidecarEmitter
+    # Alternative: add SDK to path if not installed
+    import sys
+    from pathlib import Path
+    sdk_path = Path(__file__).parent.parent.parent / "components" / "monitoring" / "sdk" / "python"
+    sys.path.insert(0, str(sdk_path))
+    from monitoring_sdk import AppRef, Monitored, SidecarEmitter
 
 
 def generate_test_file(file_path: Path, size_mb: int = 1) -> None:
