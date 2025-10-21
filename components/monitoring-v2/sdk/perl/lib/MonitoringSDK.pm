@@ -98,6 +98,12 @@ sub new {
         span_id        => undef,
         context        => {},
         
+        # Job analysis
+        job_analysis_enabled => 1,
+        job_start_time       => undef,
+        job_metrics          => {},
+        subjob_tracker       => {},
+        
         # Statistics
         messages_sent  => 0,
         messages_buffered => 0,
@@ -318,15 +324,24 @@ sub log_resource {
     $disk_io_mb    = $self->_get_disk_io_mb()     unless defined $disk_io_mb;
     $network_io_mb = $self->_get_network_io_mb()  unless defined $network_io_mb;
     
+    # Enhanced resource data with job analysis
+    my %resource_data = (
+        cpu  => $cpu_percent + 0,
+        mem  => $memory_mb + 0,
+        disk => $disk_io_mb + 0,
+        net  => $network_io_mb + 0,
+        pid  => $$,
+    );
+    
+    # Add job analysis if enabled
+    if ($self->{job_analysis_enabled}) {
+        my %job_analysis = $self->_analyze_current_job();
+        %resource_data = (%resource_data, %job_analysis);
+    }
+    
     return $self->_send_message({
         type => 'resource',
-        data => {
-            cpu  => $cpu_percent + 0,
-            mem  => $memory_mb + 0,
-            disk => $disk_io_mb + 0,
-            net  => $network_io_mb + 0,
-            pid  => $$,
-        }
+        data => \%resource_data,
     });
 }
 
@@ -557,8 +572,219 @@ sub _log {
     warn "[MonitoringSDK] $message\n";
 }
 
+# Job Analysis Methods
+
+sub start_job_analysis {
+    my ($self, $job_name, $job_type) = @_;
+    $job_type ||= 'main';
+    
+    my $job_id = "$job_name-" . int(time()) . "-" . $self->_generate_id();
+    $job_id =~ s/^(.{0,32}).*$/$1/;  # Truncate to 32 chars
+    
+    $self->{job_start_time} = time();
+    $self->{job_metrics} = {
+        job_id         => $job_id,
+        job_name       => $job_name,
+        job_type       => $job_type,
+        start_time     => $self->{job_start_time},
+        process_count  => 1,
+        thread_count   => 1,  # Perl doesn't have easy thread counting
+        cpu_cores      => $self->_get_cpu_count(),
+        memory_total_mb => $self->_get_total_memory_mb(),
+        subjobs        => [],
+    };
+    
+    # Log job start
+    $self->log_event('info', "Job analysis started: $job_name", {
+        job_id => $job_id,
+        job_type => $job_type,
+        process_count => $self->{job_metrics}{process_count},
+        thread_count => $self->{job_metrics}{thread_count},
+    });
+    
+    return $job_id;
+}
+
+sub track_subjob {
+    my ($self, $subjob_name, $subjob_type) = @_;
+    $subjob_type ||= 'process';
+    
+    my $subjob_id = "$subjob_name-" . int(time()) . "-" . $self->_generate_id();
+    $subjob_id =~ s/^(.{0,32}).*$/$1/;  # Truncate to 32 chars
+    
+    my $subjob_info = {
+        subjob_id   => $subjob_id,
+        subjob_name => $subjob_name,
+        subjob_type => $subjob_type,
+        start_time  => time(),
+        pid         => $$,
+        parent_pid  => getppid(),
+    };
+    
+    $self->{subjob_tracker}{$subjob_id} = $subjob_info;
+    push @{$self->{job_metrics}{subjobs}}, $subjob_info;
+    
+    # Log subjob start
+    $self->log_event('info', "Subjob started: $subjob_name", {
+        subjob_id => $subjob_id,
+        subjob_type => $subjob_type,
+        parent_job_id => $self->{job_metrics}{job_id} || 'unknown',
+    });
+    
+    return $subjob_id;
+}
+
+sub end_subjob {
+    my ($self, $subjob_id, $status) = @_;
+    $status ||= 'completed';
+    
+    if (exists $self->{subjob_tracker}{$subjob_id}) {
+        my $subjob_info = $self->{subjob_tracker}{$subjob_id};
+        $subjob_info->{end_time} = time();
+        $subjob_info->{duration} = $subjob_info->{end_time} - $subjob_info->{start_time};
+        $subjob_info->{status} = $status;
+        
+        # Log subjob completion
+        $self->log_event('info', "Subjob completed: $subjob_info->{subjob_name}", {
+            subjob_id => $subjob_id,
+            duration => $subjob_info->{duration},
+            status => $status,
+        });
+        
+        delete $self->{subjob_tracker}{$subjob_id};
+    }
+}
+
+sub end_job_analysis {
+    my ($self, $status) = @_;
+    $status ||= 'completed';
+    
+    return unless $self->{job_start_time};
+    
+    my $end_time = time();
+    my $total_duration = $end_time - $self->{job_start_time};
+    
+    # Calculate final metrics
+    my %final_metrics = $self->_analyze_current_job();
+    $final_metrics{end_time} = $end_time;
+    $final_metrics{total_duration} = $total_duration;
+    $final_metrics{status} = $status;
+    $final_metrics{completed_subjobs} = scalar grep { exists $_->{end_time} } @{$self->{job_metrics}{subjobs}};
+    $final_metrics{active_subjobs} = scalar keys %{$self->{subjob_tracker}};
+    
+    # Log job completion
+    $self->log_event('info', "Job analysis completed: $self->{job_metrics}{job_name}", \%final_metrics);
+    
+    # Log job summary metrics
+    $self->log_metric('job_duration_seconds', $total_duration, 'seconds', {
+        job_name => $self->{job_metrics}{job_name},
+        job_type => $self->{job_metrics}{job_type},
+        status => $status,
+    });
+    
+    $self->log_metric('job_subjobs_count', $final_metrics{completed_subjobs}, 'count', {
+        job_name => $self->{job_metrics}{job_name},
+        job_type => $self->{job_metrics}{job_type},
+    });
+    
+    # Reset job tracking
+    $self->{job_start_time} = undef;
+    $self->{job_metrics} = {};
+    $self->{subjob_tracker} = {};
+}
+
+sub _analyze_current_job {
+    my ($self) = @_;
+    my %analysis = ();
+    
+    eval {
+        # Process information
+        $analysis{process_cpu_percent} = $self->_get_cpu_percent();
+        $analysis{process_memory_mb} = $self->_get_memory_mb();
+        $analysis{process_threads} = 1;  # Perl doesn't have easy thread counting
+        $analysis{process_fds} = 0;       # Not easily available in Perl
+        $analysis{process_status} = 'running';
+        
+        # Children processes (subjobs) - simplified for Perl
+        $analysis{children_count} = 0;  # Would need more complex logic
+        $analysis{children_cpu_total} = 0;
+        $analysis{children_memory_total_mb} = 0;
+        
+        # System load
+        my @load_avg = $self->_get_load_average();
+        $analysis{load_avg_1m} = $load_avg[0] || 0;
+        $analysis{load_avg_5m} = $load_avg[1] || 0;
+        $analysis{load_avg_15m} = $load_avg[2] || 0;
+        
+        # Job-specific metrics
+        if ($self->{job_metrics}) {
+            $analysis{job_id} = $self->{job_metrics}{job_id};
+            $analysis{job_name} = $self->{job_metrics}{job_name};
+            $analysis{job_type} = $self->{job_metrics}{job_type};
+            $analysis{job_runtime} = time() - $self->{job_start_time} if $self->{job_start_time};
+            $analysis{active_subjobs} = scalar keys %{$self->{subjob_tracker}};
+        }
+    };
+    
+    if ($@ && $self->{debug}) {
+        $self->_log("Job analysis error: $@");
+    }
+    
+    return %analysis;
+}
+
+sub enable_job_analysis {
+    my ($self, $enabled) = @_;
+    $enabled = 1 unless defined $enabled;
+    $self->{job_analysis_enabled} = $enabled;
+    $self->_log($enabled ? "Job analysis enabled" : "Job analysis disabled");
+}
+
+# Helper methods for job analysis
+sub _get_cpu_count {
+    my ($self) = @_;
+    if (open my $fh, '<', '/proc/cpuinfo') {
+        my $count = 0;
+        while (<$fh>) {
+            $count++ if /^processor\s*:/;
+        }
+        close $fh;
+        return $count || 1;
+    }
+    return 1;  # Fallback
+}
+
+sub _get_total_memory_mb {
+    my ($self) = @_;
+    if (open my $fh, '<', '/proc/meminfo') {
+        while (<$fh>) {
+            if (/^MemTotal:\s*(\d+)\s*kB/) {
+                close $fh;
+                return int($1 / 1024);  # Convert KB to MB
+            }
+        }
+        close $fh;
+    }
+    return 1024;  # Fallback
+}
+
+sub _get_load_average {
+    my ($self) = @_;
+    if (open my $fh, '<', '/proc/loadavg') {
+        my $line = <$fh>;
+        close $fh;
+        if ($line =~ /^([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)/) {
+            return ($1, $2, $3);
+        }
+    }
+    return (0, 0, 0);  # Fallback
+}
+
 sub DESTROY {
     my ($self) = @_;
+    if ($self->{job_start_time}) {
+        $self->end_job_analysis('terminated');
+    }
     $self->close() if $self->{socket};
 }
 

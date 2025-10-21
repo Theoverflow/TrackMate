@@ -8,34 +8,38 @@ library(jsonlite)
 source("monitoring_sdk.R")
 
 main <- function() {
-  cat("=== R SDK Example ===\n\n")
+  cat("=== R SDK Example with Job Analysis ===\n\n")
   
   # Create SDK
   sdk <- MonitoringSDK$new(source = "r-service", debug = TRUE)
   
+  # Start job analysis
+  job_id <- sdk$start_job_analysis("data_analysis_job", "multiprocess")
+  sdk$set_trace_id(job_id)
+  
   # Log service start
   sdk$log_event("info", "R service starting")
-  
-  # Generate job ID
-  job_id <- sprintf("job-%d", as.integer(Sys.time()))
-  sdk$set_trace_id(job_id)
   
   # Start main span
   main_span <- sdk$start_span("process_batch", job_id)
   
   sdk$log_event("info", "Processing 5 items", list(job_id = job_id))
   
-  # Process items
+  # Process items with subjob tracking
   items <- c("item-001", "item-002", "item-003", "item-004", "item-005")
   
   for (i in seq_along(items)) {
     item <- items[i]
     
+    # Start subjob tracking
+    subjob_name <- sprintf("process_%s", item)
+    subjob_id <- sdk$track_subjob(subjob_name, "task")
+    
     # Start item span
     item_span <- sdk$start_span("process_item")
     
     sdk$log_event("info", sprintf("Processing %s", item), 
-                  list(item = item, index = i))
+                  list(item = item, index = i, subjob_id = subjob_id))
     
     # Simulate work
     Sys.sleep(runif(1, 0.1, 0.3))
@@ -47,14 +51,20 @@ main <- function() {
     # Log metric
     processing_time <- runif(1, 50, 200)
     sdk$log_metric("item_processing_time_ms", processing_time, "milliseconds",
-                   list(item = item))
+                   list(item = item, subjob_id = subjob_id))
+    
+    # Log resource usage with job analysis
+    sdk$log_resource()  # Includes job analysis metrics
     
     # End item span
     sdk$end_span(item_span, "success", list(item = item))
+    
+    # End subjob
+    sdk$end_subjob(subjob_id, "completed")
   }
   
-  # Log resource usage (automatically collected)
-  sdk$log_resource()  # SDK automatically collects CPU, memory, disk, network metrics
+  # Log final resource usage
+  sdk$log_resource()  # Final job analysis metrics
   
   # Complete
   sdk$log_progress(job_id, 100, "completed")
@@ -62,6 +72,9 @@ main <- function() {
   
   # End main span
   sdk$end_span(main_span, "success")
+  
+  # End job analysis
+  sdk$end_job_analysis("completed")
   
   # Show statistics
   stats <- sdk$get_stats()

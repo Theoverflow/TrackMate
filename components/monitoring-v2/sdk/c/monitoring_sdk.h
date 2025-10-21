@@ -130,12 +130,52 @@ monitoring_error_t monitoring_log_resource(
 );
 
 /**
- * Log resource usage (auto-collect all metrics)
+ * Start job analysis for a business process
  * 
  * @param sdk SDK handle
+ * @param job_name Name of the job/process
+ * @param job_type Type of job (main, subjob, multiprocess)
+ * @return Job ID string (caller must free) or NULL on error
+ */
+char* monitoring_start_job_analysis(monitoring_sdk_t* sdk, const char* job_name, const char* job_type);
+
+/**
+ * Track a subjob (child process, thread, or task)
+ * 
+ * @param sdk SDK handle
+ * @param subjob_name Name of the subjob
+ * @param subjob_type Type (process, thread, task)
+ * @return Subjob ID string (caller must free) or NULL on error
+ */
+char* monitoring_track_subjob(monitoring_sdk_t* sdk, const char* subjob_name, const char* subjob_type);
+
+/**
+ * End tracking a subjob
+ * 
+ * @param sdk SDK handle
+ * @param subjob_id Subjob ID returned by monitoring_track_subjob
+ * @param status Completion status
  * @return MONITORING_OK on success
  */
-monitoring_error_t monitoring_log_resource_auto(monitoring_sdk_t* sdk);
+monitoring_error_t monitoring_end_subjob(monitoring_sdk_t* sdk, const char* subjob_id, const char* status);
+
+/**
+ * End job analysis and log summary
+ * 
+ * @param sdk SDK handle
+ * @param status Completion status
+ * @return MONITORING_OK on success
+ */
+monitoring_error_t monitoring_end_job_analysis(monitoring_sdk_t* sdk, const char* status);
+
+/**
+ * Enable or disable automatic job analysis
+ * 
+ * @param sdk SDK handle
+ * @param enabled 1 to enable, 0 to disable
+ * @return MONITORING_OK on success
+ */
+monitoring_error_t monitoring_enable_job_analysis(monitoring_sdk_t* sdk, int enabled);
 
 /**
  * Start a distributed trace span

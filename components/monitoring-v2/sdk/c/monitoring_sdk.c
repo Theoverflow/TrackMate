@@ -40,6 +40,10 @@ struct monitoring_sdk {
     char trace_id[MONITORING_MAX_ID_LEN];
     char span_id[MONITORING_MAX_ID_LEN];
     
+    /* Job analysis */
+    int job_analysis_enabled;
+    time_t job_start_time;
+    
     /* Statistics */
     uint64_t messages_sent;
     uint64_t messages_buffered;
@@ -239,6 +243,10 @@ monitoring_sdk_t* monitoring_sdk_create(const char* source, const char* tcp_host
     sdk->sockfd = -1;
     sdk->state = MONITORING_STATE_DISCONNECTED;
     sdk->reconnect_delay = 1.0;
+    
+    /* Initialize job analysis */
+    sdk->job_analysis_enabled = 1;
+    sdk->job_start_time = 0;
     
     pthread_mutex_init(&sdk->lock, NULL);
     
@@ -455,6 +463,154 @@ monitoring_error_t monitoring_log_resource(monitoring_sdk_t* sdk, double cpu_per
 
 monitoring_error_t monitoring_log_resource_auto(monitoring_sdk_t* sdk) {
     return monitoring_log_resource(sdk, -1, -1, -1, -1);
+}
+
+// Job Analysis Implementation
+
+char* monitoring_start_job_analysis(monitoring_sdk_t* sdk, const char* job_name, const char* job_type) {
+    if (!sdk || !job_name) {
+        return NULL;
+    }
+    
+    pthread_mutex_lock(&sdk->lock);
+    
+    // Generate job ID
+    char job_id[64];
+    snprintf(job_id, sizeof(job_id), "%s-%ld-%08x", job_name, time(NULL), rand());
+    
+    // Store job info
+    sdk->job_start_time = time(NULL);
+    sdk->job_analysis_enabled = 1;
+    
+    // Log job start event
+    char event_data[256];
+    snprintf(event_data, sizeof(event_data), 
+             "{\"job_id\":\"%s\",\"job_type\":\"%s\",\"process_count\":1,\"thread_count\":1}",
+             job_id, job_type ? job_type : "main");
+    
+    char msg[MONITORING_MAX_MESSAGE_LEN];
+    int len = format_message(msg, sizeof(msg), sdk, "event", event_data);
+    
+    send_message(sdk, msg, len);
+    
+    pthread_mutex_unlock(&sdk->lock);
+    
+    // Return copy of job ID
+    char* result = malloc(strlen(job_id) + 1);
+    if (result) {
+        strcpy(result, job_id);
+    }
+    return result;
+}
+
+char* monitoring_track_subjob(monitoring_sdk_t* sdk, const char* subjob_name, const char* subjob_type) {
+    if (!sdk || !subjob_name) {
+        return NULL;
+    }
+    
+    pthread_mutex_lock(&sdk->lock);
+    
+    // Generate subjob ID
+    char subjob_id[64];
+    snprintf(subjob_id, sizeof(subjob_id), "%s-%ld-%08x", subjob_name, time(NULL), rand());
+    
+    // Log subjob start event
+    char event_data[256];
+    snprintf(event_data, sizeof(event_data), 
+             "{\"subjob_id\":\"%s\",\"subjob_type\":\"%s\",\"parent_job_id\":\"unknown\"}",
+             subjob_id, subjob_type ? subjob_type : "process");
+    
+    char msg[MONITORING_MAX_MESSAGE_LEN];
+    int len = format_message(msg, sizeof(msg), sdk, "event", event_data);
+    
+    send_message(sdk, msg, len);
+    
+    pthread_mutex_unlock(&sdk->lock);
+    
+    // Return copy of subjob ID
+    char* result = malloc(strlen(subjob_id) + 1);
+    if (result) {
+        strcpy(result, subjob_id);
+    }
+    return result;
+}
+
+monitoring_error_t monitoring_end_subjob(monitoring_sdk_t* sdk, const char* subjob_id, const char* status) {
+    if (!sdk || !subjob_id) {
+        return MONITORING_ERROR_INVALID_PARAM;
+    }
+    
+    pthread_mutex_lock(&sdk->lock);
+    
+    // Log subjob completion event
+    char event_data[256];
+    snprintf(event_data, sizeof(event_data), 
+             "{\"subjob_id\":\"%s\",\"status\":\"%s\"}",
+             subjob_id, status ? status : "completed");
+    
+    char msg[MONITORING_MAX_MESSAGE_LEN];
+    int len = format_message(msg, sizeof(msg), sdk, "event", event_data);
+    
+    int result = send_message(sdk, msg, len);
+    
+    pthread_mutex_unlock(&sdk->lock);
+    
+    return result == 0 ? MONITORING_OK : MONITORING_ERROR_SEND;
+}
+
+monitoring_error_t monitoring_end_job_analysis(monitoring_sdk_t* sdk, const char* status) {
+    if (!sdk) {
+        return MONITORING_ERROR_INVALID_PARAM;
+    }
+    
+    pthread_mutex_lock(&sdk->lock);
+    
+    if (sdk->job_start_time == 0) {
+        pthread_mutex_unlock(&sdk->lock);
+        return MONITORING_OK;  // No job analysis active
+    }
+    
+    time_t end_time = time(NULL);
+    time_t duration = end_time - sdk->job_start_time;
+    
+    // Log job completion event
+    char event_data[256];
+    snprintf(event_data, sizeof(event_data), 
+             "{\"end_time\":%ld,\"total_duration\":%ld,\"status\":\"%s\"}",
+             end_time, duration, status ? status : "completed");
+    
+    char msg[MONITORING_MAX_MESSAGE_LEN];
+    int len = format_message(msg, sizeof(msg), sdk, "event", event_data);
+    
+    send_message(sdk, msg, len);
+    
+    // Log job duration metric
+    char metric_data[256];
+    snprintf(metric_data, sizeof(metric_data), 
+             "{\"value\":%ld,\"unit\":\"seconds\",\"tags\":{\"status\":\"%s\"}}",
+             duration, status ? status : "completed");
+    
+    len = format_message(msg, sizeof(msg), sdk, "metric", metric_data);
+    send_message(sdk, msg, len);
+    
+    // Reset job tracking
+    sdk->job_start_time = 0;
+    
+    pthread_mutex_unlock(&sdk->lock);
+    
+    return MONITORING_OK;
+}
+
+monitoring_error_t monitoring_enable_job_analysis(monitoring_sdk_t* sdk, int enabled) {
+    if (!sdk) {
+        return MONITORING_ERROR_INVALID_PARAM;
+    }
+    
+    pthread_mutex_lock(&sdk->lock);
+    sdk->job_analysis_enabled = enabled ? 1 : 0;
+    pthread_mutex_unlock(&sdk->lock);
+    
+    return MONITORING_OK;
 }
 
 monitoring_error_t monitoring_start_span(monitoring_sdk_t* sdk, const char* name,

@@ -16,6 +16,8 @@ from typing import Optional, Dict, Any, List
 from collections import deque
 import random
 import string
+import multiprocessing
+import subprocess
 
 
 class State(Enum):
@@ -69,6 +71,12 @@ class MonitoringSDK:
         self.trace_id: Optional[str] = None
         self.span_id: Optional[str] = None
         self.context: Dict[str, Any] = {}
+        
+        # Job analysis
+        self.job_analysis_enabled = True
+        self.job_start_time: Optional[float] = None
+        self.job_metrics: Dict[str, Any] = {}
+        self.subjob_tracker: Dict[str, Dict[str, Any]] = {}
         
         # Statistics
         self.messages_sent = 0
@@ -290,15 +298,53 @@ class MonitoringSDK:
             except:
                 network_io_mb = 0.0
         
+        # Auto-collect metrics if not provided
+        if cpu_percent is None:
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+        
+        if memory_mb is None:
+            mem = psutil.virtual_memory()
+            memory_mb = mem.used / (1024 * 1024)  # Convert to MB
+        
+        if disk_io_mb is None:
+            try:
+                disk_io = psutil.disk_io_counters()
+                if disk_io:
+                    # Read + Write in MB
+                    disk_io_mb = (disk_io.read_bytes + disk_io.write_bytes) / (1024 * 1024)
+                else:
+                    disk_io_mb = 0.0
+            except:
+                disk_io_mb = 0.0
+        
+        if network_io_mb is None:
+            try:
+                net_io = psutil.net_io_counters()
+                if net_io:
+                    # Sent + Received in MB
+                    network_io_mb = (net_io.bytes_sent + net_io.bytes_recv) / (1024 * 1024)
+                else:
+                    network_io_mb = 0.0
+            except:
+                network_io_mb = 0.0
+        
+        # Enhanced resource data with job analysis
+        resource_data = {
+            'cpu': float(cpu_percent),
+            'mem': float(memory_mb),
+            'disk': float(disk_io_mb),
+            'net': float(network_io_mb),
+            'pid': os.getpid()
+        }
+        
+        # Add job analysis if enabled
+        if self.job_analysis_enabled:
+            job_analysis = self._analyze_current_job()
+            resource_data.update(job_analysis)
+        
         return self._send_message({
             'type': 'resource',
-            'data': {
-                'cpu': float(cpu_percent),
-                'mem': float(memory_mb),
-                'disk': float(disk_io_mb),
-                'net': float(network_io_mb),
-                'pid': os.getpid()
-            }
+            'data': resource_data
         })
     
     def start_span(self, name: str, trace_id: Optional[str] = None) -> str:
@@ -416,18 +462,205 @@ class MonitoringSDK:
         if self.debug:
             print(f"[MonitoringSDK] {message}")
     
+    # Job Analysis Methods
+    
+    def start_job_analysis(self, job_name: str, job_type: str = "main") -> str:
+        """
+        Start analyzing a business job/process
+        
+        Args:
+            job_name: Name of the job/process
+            job_type: Type of job (main, subjob, multiprocess)
+        
+        Returns:
+            Job ID for tracking
+        """
+        job_id = f"{job_name}-{int(time.time())}-{self._generate_id()[:8]}"
+        
+        self.job_start_time = time.time()
+        self.job_metrics = {
+            'job_id': job_id,
+            'job_name': job_name,
+            'job_type': job_type,
+            'start_time': self.job_start_time,
+            'process_count': 1,
+            'thread_count': threading.active_count(),
+            'cpu_cores': multiprocessing.cpu_count(),
+            'memory_total_mb': psutil.virtual_memory().total / (1024 * 1024),
+            'subjobs': []
+        }
+        
+        # Log job start
+        self.log_event('info', f'Job analysis started: {job_name}', {
+            'job_id': job_id,
+            'job_type': job_type,
+            'process_count': self.job_metrics['process_count'],
+            'thread_count': self.job_metrics['thread_count']
+        })
+        
+        return job_id
+    
+    def track_subjob(self, subjob_name: str, subjob_type: str = "process") -> str:
+        """
+        Track a subjob (child process, thread, or task)
+        
+        Args:
+            subjob_name: Name of the subjob
+            subjob_type: Type (process, thread, task)
+        
+        Returns:
+            Subjob ID
+        """
+        subjob_id = f"{subjob_name}-{int(time.time())}-{self._generate_id()[:8]}"
+        
+        subjob_info = {
+            'subjob_id': subjob_id,
+            'subjob_name': subjob_name,
+            'subjob_type': subjob_type,
+            'start_time': time.time(),
+            'pid': os.getpid(),
+            'parent_pid': os.getppid()
+        }
+        
+        self.subjob_tracker[subjob_id] = subjob_info
+        self.job_metrics['subjobs'].append(subjob_info)
+        
+        # Log subjob start
+        self.log_event('info', f'Subjob started: {subjob_name}', {
+            'subjob_id': subjob_id,
+            'subjob_type': subjob_type,
+            'parent_job_id': self.job_metrics.get('job_id', 'unknown')
+        })
+        
+        return subjob_id
+    
+    def end_subjob(self, subjob_id: str, status: str = "completed"):
+        """End tracking a subjob"""
+        if subjob_id in self.subjob_tracker:
+            subjob_info = self.subjob_tracker[subjob_id]
+            subjob_info['end_time'] = time.time()
+            subjob_info['duration'] = subjob_info['end_time'] - subjob_info['start_time']
+            subjob_info['status'] = status
+            
+            # Log subjob completion
+            self.log_event('info', f'Subjob completed: {subjob_info["subjob_name"]}', {
+                'subjob_id': subjob_id,
+                'duration': subjob_info['duration'],
+                'status': status
+            })
+            
+            del self.subjob_tracker[subjob_id]
+    
+    def end_job_analysis(self, status: str = "completed"):
+        """End job analysis and log summary"""
+        if not self.job_start_time:
+            return
+        
+        end_time = time.time()
+        total_duration = end_time - self.job_start_time
+        
+        # Calculate final metrics
+        final_metrics = self._analyze_current_job()
+        final_metrics.update({
+            'end_time': end_time,
+            'total_duration': total_duration,
+            'status': status,
+            'completed_subjobs': len([sj for sj in self.job_metrics['subjobs'] if 'end_time' in sj]),
+            'active_subjobs': len(self.subjob_tracker)
+        })
+        
+        # Log job completion
+        self.log_event('info', f'Job analysis completed: {self.job_metrics["job_name"]}', final_metrics)
+        
+        # Log job summary metrics
+        self.log_metric('job_duration_seconds', total_duration, 'seconds', {
+            'job_name': self.job_metrics['job_name'],
+            'job_type': self.job_metrics['job_type'],
+            'status': status
+        })
+        
+        self.log_metric('job_subjobs_count', final_metrics['completed_subjobs'], 'count', {
+            'job_name': self.job_metrics['job_name'],
+            'job_type': self.job_metrics['job_type']
+        })
+        
+        # Reset job tracking
+        self.job_start_time = None
+        self.job_metrics = {}
+        self.subjob_tracker = {}
+    
+    def _analyze_current_job(self) -> Dict[str, Any]:
+        """Analyze current job/process state"""
+        analysis = {}
+        
+        try:
+            current_process = psutil.Process()
+            
+            # Process information
+            analysis.update({
+                'process_cpu_percent': current_process.cpu_percent(),
+                'process_memory_mb': current_process.memory_info().rss / (1024 * 1024),
+                'process_threads': current_process.num_threads(),
+                'process_fds': current_process.num_fds() if hasattr(current_process, 'num_fds') else 0,
+                'process_status': current_process.status()
+            })
+            
+            # Children processes (subjobs)
+            children = current_process.children(recursive=True)
+            analysis.update({
+                'children_count': len(children),
+                'children_cpu_total': sum(child.cpu_percent() for child in children),
+                'children_memory_total_mb': sum(child.memory_info().rss for child in children) / (1024 * 1024)
+            })
+            
+            # System load
+            load_avg = os.getloadavg() if hasattr(os, 'getloadavg') else (0, 0, 0)
+            analysis.update({
+                'load_avg_1m': load_avg[0],
+                'load_avg_5m': load_avg[1],
+                'load_avg_15m': load_avg[2]
+            })
+            
+            # Job-specific metrics
+            if self.job_metrics:
+                analysis.update({
+                    'job_id': self.job_metrics.get('job_id'),
+                    'job_name': self.job_metrics.get('job_name'),
+                    'job_type': self.job_metrics.get('job_type'),
+                    'job_runtime': time.time() - self.job_start_time if self.job_start_time else 0,
+                    'active_subjobs': len(self.subjob_tracker)
+                })
+            
+        except Exception as e:
+            if self.debug:
+                self._log(f"Job analysis error: {e}")
+        
+        return analysis
+    
+    def enable_job_analysis(self, enabled: bool = True):
+        """Enable or disable automatic job analysis"""
+        self.job_analysis_enabled = enabled
+        if enabled:
+            self._log("Job analysis enabled")
+        else:
+            self._log("Job analysis disabled")
+    
     def __enter__(self):
         """Context manager support"""
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager cleanup"""
+        if self.job_start_time:
+            self.end_job_analysis("completed" if exc_type is None else "error")
         self.close()
         return False
     
     def __del__(self):
         """Destructor"""
         try:
+            if hasattr(self, 'job_start_time') and self.job_start_time:
+                self.end_job_analysis("terminated")
             self.close()
         except:
             pass

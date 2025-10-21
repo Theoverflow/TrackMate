@@ -12,7 +12,7 @@
 void process_item(monitoring_sdk_t* sdk, const char* item, const char* job_id, int index, int total);
 
 int main() {
-    printf("=== C SDK Example ===\n\n");
+    printf("=== C SDK Example with Job Analysis ===\n\n");
     
     // Create SDK
     monitoring_sdk_t* sdk = monitoring_sdk_create("c-service", "localhost", 17000);
@@ -21,13 +21,15 @@ int main() {
         return 1;
     }
     
+    // Start job analysis
+    char* job_id = monitoring_start_job_analysis(sdk, "batch_processing_job", "multiprocess");
+    if (job_id) {
+        monitoring_set_trace_id(sdk, job_id);
+        printf("Started job analysis: %s\n", job_id);
+    }
+    
     // Log service start
     monitoring_log_event(sdk, "info", "C service starting", NULL);
-    
-    // Generate job ID
-    char job_id[32];
-    snprintf(job_id, sizeof(job_id), "job-%ld", time(NULL));
-    monitoring_set_trace_id(sdk, job_id);
     
     // Start main span
     char main_span[32];
@@ -35,16 +37,25 @@ int main() {
     
     monitoring_log_event(sdk, "info", "Processing 5 items", "{\"job_id\":\"job-123\"}");
     
-    // Process items
+    // Process items with subjob tracking
     const char* items[] = {"item-001", "item-002", "item-003", "item-004", "item-005"};
     int num_items = 5;
     
     for (int i = 0; i < num_items; i++) {
+        // Start subjob tracking
+        char subjob_name[64];
+        snprintf(subjob_name, sizeof(subjob_name), "process_%s", items[i]);
+        char* subjob_id = monitoring_track_subjob(sdk, subjob_name, "task");
+        
         process_item(sdk, items[i], job_id, i, num_items);
+        
+        // End subjob
+        monitoring_end_subjob(sdk, subjob_id, "completed");
+        free(subjob_id);
     }
     
-    // Log resource usage (automatically collected)
-    monitoring_log_resource_auto(sdk);  // SDK automatically collects CPU, memory, disk, network metrics
+    // Log final resource usage
+    monitoring_log_resource_auto(sdk);  // Final job analysis metrics
     
     // Complete
     monitoring_log_progress(sdk, job_id, 100, "completed");
@@ -52,6 +63,9 @@ int main() {
     
     // End main span
     monitoring_end_span(sdk, main_span, "success", NULL);
+    
+    // End job analysis
+    monitoring_end_job_analysis(sdk, "completed");
     
     // Show statistics
     uint64_t sent, buffered, dropped;
@@ -64,6 +78,7 @@ int main() {
     printf("   Messages dropped: %llu\n", (unsigned long long)dropped);
     
     // Cleanup
+    free(job_id);
     monitoring_sdk_destroy(sdk);
     
     printf("\n✓ C service finished\n\n");

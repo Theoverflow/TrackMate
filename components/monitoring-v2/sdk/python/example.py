@@ -9,31 +9,37 @@ import random
 from monitoring_sdk import MonitoringSDK
 
 def main():
-    print("=== Python SDK Example ===\n")
+    print("=== Python SDK Example with Job Analysis ===\n")
     
     # Create SDK with context manager (auto-cleanup)
     with MonitoringSDK(source='python-service', debug=True) as sdk:
         
+        # Start job analysis
+        job_id = sdk.start_job_analysis('batch_processing_job', 'multiprocess')
+        sdk.set_trace_id(job_id)
+        
         # Log service start
         sdk.log_event('info', 'Python service starting')
         
-        # Simulate processing items
+        # Simulate processing items with subjobs
         items = ['item-001', 'item-002', 'item-003', 'item-004', 'item-005']
-        
-        # Generate job ID for trace correlation
-        job_id = f"job-{int(time.time())}"
-        sdk.set_trace_id(job_id)
         
         # Start overall span
         main_span = sdk.start_span('process_batch', job_id)
         
         sdk.log_event('info', f'Processing {len(items)} items', {'job_id': job_id})
         
+        # Track subjobs for each item
+        subjob_ids = []
         for i, item in enumerate(items):
+            # Start subjob tracking
+            subjob_id = sdk.track_subjob(f'process_{item}', 'task')
+            subjob_ids.append(subjob_id)
+            
             # Per-item span
             item_span = sdk.start_span(f'process_item')
             
-            sdk.log_event('info', f'Processing {item}', {'index': i})
+            sdk.log_event('info', f'Processing {item}', {'index': i, 'subjob_id': subjob_id})
             
             # Simulate work
             time.sleep(random.uniform(0.1, 0.3))
@@ -45,13 +51,19 @@ def main():
             # Log item metric
             processing_time = random.uniform(50, 200)
             sdk.log_metric('item_processing_time_ms', processing_time, 'milliseconds',
-                          {'item': item})
+                          {'item': item, 'subjob_id': subjob_id})
+            
+            # Log resource usage with job analysis
+            sdk.log_resource()  # Includes job analysis metrics
             
             # End item span
             sdk.end_span(item_span, 'success', {'item': item})
+            
+            # End subjob
+            sdk.end_subjob(subjob_id, 'completed')
         
-        # Log resource usage (automatically collected)
-        sdk.log_resource()  # SDK automatically collects CPU, memory, disk, network metrics
+        # Log final resource usage
+        sdk.log_resource()  # Final job analysis metrics
         
         # Complete
         sdk.log_progress(job_id, 100, 'completed')
@@ -59,6 +71,9 @@ def main():
         
         # End main span
         sdk.end_span(main_span, 'success')
+        
+        # End job analysis
+        sdk.end_job_analysis('completed')
         
         # Show statistics
         stats = sdk.get_stats()

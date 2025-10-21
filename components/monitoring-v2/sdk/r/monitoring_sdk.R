@@ -70,6 +70,12 @@ MonitoringSDK <- R6Class("MonitoringSDK",
       private$.span_id <- NULL
       private$.context <- list()
       
+      # Job analysis
+      private$.job_analysis_enabled <- TRUE
+      private$.job_start_time <- NULL
+      private$.job_metrics <- list()
+      private$.subjob_tracker <- list()
+      
       # Statistics
       private$.messages_sent <- 0
       private$.messages_buffered <- 0
@@ -141,15 +147,24 @@ MonitoringSDK <- R6Class("MonitoringSDK",
       if (is.null(disk_io_mb))     disk_io_mb <- private$get_disk_io_mb()
       if (is.null(network_io_mb))  network_io_mb <- private$get_network_io_mb()
       
+      # Enhanced resource data with job analysis
+      resource_data <- list(
+        cpu = as.numeric(cpu_percent),
+        mem = as.numeric(memory_mb),
+        disk = as.numeric(disk_io_mb),
+        net = as.numeric(network_io_mb),
+        pid = Sys.getpid()
+      )
+      
+      # Add job analysis if enabled
+      if (private$.job_analysis_enabled) {
+        job_analysis <- private$analyze_current_job()
+        resource_data <- c(resource_data, job_analysis)
+      }
+      
       private$send_message(list(
         type = "resource",
-        data = list(
-          cpu = as.numeric(cpu_percent),
-          mem = as.numeric(memory_mb),
-          disk = as.numeric(disk_io_mb),
-          net = as.numeric(network_io_mb),
-          pid = Sys.getpid()
-        )
+        data = resource_data
       ))
     },
     
@@ -250,6 +265,141 @@ MonitoringSDK <- R6Class("MonitoringSDK",
         overflow_count = private$.overflow_count,
         reconnect_count = private$.reconnect_count
       )
+    },
+    
+    # Job Analysis Methods
+    
+    #' @description Start analyzing a business job/process
+    #' @param job_name Name of the job/process
+    #' @param job_type Type of job (main, subjob, multiprocess)
+    #' @return Job ID for tracking
+    start_job_analysis = function(job_name, job_type = "main") {
+      job_id <- paste0(job_name, "-", as.integer(Sys.time()), "-", private$generate_id())
+      job_id <- substr(job_id, 1, 32)  # Truncate to 32 chars
+      
+      private$.job_start_time <- Sys.time()
+      private$.job_metrics <- list(
+        job_id = job_id,
+        job_name = job_name,
+        job_type = job_type,
+        start_time = private$.job_start_time,
+        process_count = 1,
+        thread_count = 1,  # R doesn't have easy thread counting
+        cpu_cores = parallel::detectCores(),
+        memory_total_mb = private$get_total_memory_mb(),
+        subjobs = list()
+      )
+      
+      # Log job start
+      self$log_event("info", paste("Job analysis started:", job_name), list(
+        job_id = job_id,
+        job_type = job_type,
+        process_count = private$.job_metrics$process_count,
+        thread_count = private$.job_metrics$thread_count
+      ))
+      
+      return(job_id)
+    },
+    
+    #' @description Track a subjob (child process, thread, or task)
+    #' @param subjob_name Name of the subjob
+    #' @param subjob_type Type (process, thread, task)
+    #' @return Subjob ID
+    track_subjob = function(subjob_name, subjob_type = "process") {
+      subjob_id <- paste0(subjob_name, "-", as.integer(Sys.time()), "-", private$generate_id())
+      subjob_id <- substr(subjob_id, 1, 32)  # Truncate to 32 chars
+      
+      subjob_info <- list(
+        subjob_id = subjob_id,
+        subjob_name = subjob_name,
+        subjob_type = subjob_type,
+        start_time = Sys.time(),
+        pid = Sys.getpid(),
+        parent_pid = Sys.getpid()  # R doesn't have easy parent PID access
+      )
+      
+      private$.subjob_tracker[[subjob_id]] <- subjob_info
+      private$.job_metrics$subjobs <- append(private$.job_metrics$subjobs, list(subjob_info))
+      
+      # Log subjob start
+      self$log_event("info", paste("Subjob started:", subjob_name), list(
+        subjob_id = subjob_id,
+        subjob_type = subjob_type,
+        parent_job_id = private$.job_metrics$job_id %||% "unknown"
+      ))
+      
+      return(subjob_id)
+    },
+    
+    #' @description End tracking a subjob
+    #' @param subjob_id Subjob ID returned by track_subjob
+    #' @param status Completion status
+    end_subjob = function(subjob_id, status = "completed") {
+      if (subjob_id %in% names(private$.subjob_tracker)) {
+        subjob_info <- private$.subjob_tracker[[subjob_id]]
+        subjob_info$end_time <- Sys.time()
+        subjob_info$duration <- as.numeric(subjob_info$end_time - subjob_info$start_time, units = "secs")
+        subjob_info$status <- status
+        
+        # Log subjob completion
+        self$log_event("info", paste("Subjob completed:", subjob_info$subjob_name), list(
+          subjob_id = subjob_id,
+          duration = subjob_info$duration,
+          status = status
+        ))
+        
+        private$.subjob_tracker[[subjob_id]] <- NULL
+      }
+    },
+    
+    #' @description End job analysis and log summary
+    #' @param status Completion status
+    end_job_analysis = function(status = "completed") {
+      if (is.null(private$.job_start_time)) {
+        return(invisible())
+      }
+      
+      end_time <- Sys.time()
+      total_duration <- as.numeric(end_time - private$.job_start_time, units = "secs")
+      
+      # Calculate final metrics
+      final_metrics <- private$analyze_current_job()
+      final_metrics$end_time <- end_time
+      final_metrics$total_duration <- total_duration
+      final_metrics$status <- status
+      final_metrics$completed_subjobs <- length(Filter(function(sj) !is.null(sj$end_time), private$.job_metrics$subjobs))
+      final_metrics$active_subjobs <- length(private$.subjob_tracker)
+      
+      # Log job completion
+      self$log_event("info", paste("Job analysis completed:", private$.job_metrics$job_name), final_metrics)
+      
+      # Log job summary metrics
+      self$log_metric("job_duration_seconds", total_duration, "seconds", list(
+        job_name = private$.job_metrics$job_name,
+        job_type = private$.job_metrics$job_type,
+        status = status
+      ))
+      
+      self$log_metric("job_subjobs_count", final_metrics$completed_subjobs, "count", list(
+        job_name = private$.job_metrics$job_name,
+        job_type = private$.job_metrics$job_type
+      ))
+      
+      # Reset job tracking
+      private$.job_start_time <- NULL
+      private$.job_metrics <- list()
+      private$.subjob_tracker <- list()
+    },
+    
+    #' @description Enable or disable automatic job analysis
+    #' @param enabled TRUE to enable, FALSE to disable
+    enable_job_analysis = function(enabled = TRUE) {
+      private$.job_analysis_enabled <- enabled
+      if (enabled) {
+        private$log("Job analysis enabled")
+      } else {
+        private$log("Job analysis disabled")
+      }
     },
     
     #' @description Close connection and cleanup
@@ -558,6 +708,74 @@ MonitoringSDK <- R6Class("MonitoringSDK",
         }
         return(0)
       }, error = function(e) 0)
+    },
+    
+    # Job analysis private methods
+    analyze_current_job = function() {
+      analysis <- list()
+      
+      tryCatch({
+        # Process information
+        analysis$process_cpu_percent <- private$get_cpu_percent()
+        analysis$process_memory_mb <- private$get_memory_mb()
+        analysis$process_threads <- 1  # R doesn't have easy thread counting
+        analysis$process_fds <- 0      # Not easily available in R
+        analysis$process_status <- "running"
+        
+        # Children processes (subjobs) - simplified for R
+        analysis$children_count <- 0  # Would need more complex logic
+        analysis$children_cpu_total <- 0
+        analysis$children_memory_total_mb <- 0
+        
+        # System load
+        load_avg <- private$get_load_average()
+        analysis$load_avg_1m <- load_avg[1] %||% 0
+        analysis$load_avg_5m <- load_avg[2] %||% 0
+        analysis$load_avg_15m <- load_avg[3] %||% 0
+        
+        # Job-specific metrics
+        if (length(private$.job_metrics) > 0) {
+          analysis$job_id <- private$.job_metrics$job_id
+          analysis$job_name <- private$.job_metrics$job_name
+          analysis$job_type <- private$.job_metrics$job_type
+          analysis$job_runtime <- as.numeric(Sys.time() - private$.job_start_time, units = "secs") %||% 0
+          analysis$active_subjobs <- length(private$.subjob_tracker)
+        }
+      }, error = function(e) {
+        if (private$.debug) {
+          private$log(paste("Job analysis error:", e$message))
+        }
+      })
+      
+      return(analysis)
+    },
+    
+    get_total_memory_mb = function() {
+      tryCatch({
+        if (file.exists("/proc/meminfo")) {
+          lines <- readLines("/proc/meminfo")
+          for (line in lines) {
+            if (grepl("^MemTotal:", line)) {
+              mem_kb <- as.numeric(gsub("^MemTotal:\\s+(\\d+).*", "\\1", line))
+              return(mem_kb / 1024)  # Convert KB to MB
+            }
+          }
+        }
+        return(1024)  # Fallback
+      }, error = function(e) 1024)
+    },
+    
+    get_load_average = function() {
+      tryCatch({
+        if (file.exists("/proc/loadavg")) {
+          line <- readLines("/proc/loadavg", n = 1)
+          parts <- strsplit(line, "\\s+")[[1]]
+          if (length(parts) >= 3) {
+            return(c(as.numeric(parts[1]), as.numeric(parts[2]), as.numeric(parts[3])))
+          }
+        }
+        return(c(0, 0, 0))  # Fallback
+      }, error = function(e) c(0, 0, 0))
     }
   ),
   
