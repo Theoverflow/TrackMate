@@ -43,8 +43,8 @@ int main() {
         process_item(sdk, items[i], job_id, i, num_items);
     }
     
-    // Log resource usage
-    monitoring_log_resource(sdk, 45.5, 1024.0, 25.5, 10.2);
+    // Log resource usage (automatically collected)
+    monitoring_log_resource_auto(sdk);  // SDK automatically collects CPU, memory, disk, network metrics
     
     // Complete
     monitoring_log_progress(sdk, job_id, 100, "completed");
@@ -92,6 +92,9 @@ void process_item(monitoring_sdk_t* sdk, const char* item, const char* job_id, i
     char tags[64];
     snprintf(tags, sizeof(tags), "{\"item\":\"%s\"}", item);
     monitoring_log_metric(sdk, "item_processing_time_ms", processing_time, "milliseconds", tags);
+    
+    // Log resource usage for this item (auto-collected)
+    monitoring_log_resource_auto(sdk);
     
     // End span
     monitoring_end_span(sdk, item_span, "success", tags);

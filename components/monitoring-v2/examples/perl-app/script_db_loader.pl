@@ -63,10 +63,8 @@ $mon->log_metric('rows_loaded', $rows_to_load, 'count', {
     file => $filename
 });
 
-# Simulate resource usage
-my $cpu = 35.5 + rand(20);
-my $memory = 512 + rand(512);
-$mon->log_resource($cpu, $memory, 50, 10);
+# Log resource usage (automatically collected)
+$mon->log_resource();  # SDK automatically collects CPU, memory, disk, network metrics
 
 # End span
 $mon->end_span($span_id, 'success');

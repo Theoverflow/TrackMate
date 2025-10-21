@@ -50,13 +50,8 @@ def main():
             # End item span
             sdk.end_span(item_span, 'success', {'item': item})
         
-        # Log resource usage
-        sdk.log_resource(
-            cpu_percent=random.uniform(30, 60),
-            memory_mb=random.uniform(512, 1024),
-            disk_io_mb=random.uniform(10, 50),
-            network_io_mb=random.uniform(5, 20)
-        )
+        # Log resource usage (automatically collected)
+        sdk.log_resource()  # SDK automatically collects CPU, memory, disk, network metrics
         
         # Complete
         sdk.log_progress(job_id, 100, 'completed')

@@ -312,6 +312,12 @@ sub log_progress {
 sub log_resource {
     my ($self, $cpu_percent, $memory_mb, $disk_io_mb, $network_io_mb) = @_;
     
+    # Auto-collect metrics if not provided
+    $cpu_percent   = $self->_get_cpu_percent()    unless defined $cpu_percent;
+    $memory_mb     = $self->_get_memory_mb()      unless defined $memory_mb;
+    $disk_io_mb    = $self->_get_disk_io_mb()     unless defined $disk_io_mb;
+    $network_io_mb = $self->_get_network_io_mb()  unless defined $network_io_mb;
+    
     return $self->_send_message({
         type => 'resource',
         data => {
@@ -319,8 +325,110 @@ sub log_resource {
             mem  => $memory_mb + 0,
             disk => $disk_io_mb + 0,
             net  => $network_io_mb + 0,
+            pid  => $$,
         }
     });
+}
+
+# Auto-collect CPU usage percentage
+sub _get_cpu_percent {
+    my ($self) = @_;
+    
+    # Try to read from /proc/stat (Linux)
+    if (-f '/proc/stat') {
+        if (open my $fh, '<', '/proc/stat') {
+            my $line = <$fh>;
+            close $fh;
+            
+            if ($line =~ /^cpu\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)/) {
+                my ($user, $nice, $system, $idle) = ($1, $2, $3, $4);
+                my $total = $user + $nice + $system + $idle;
+                my $used = $user + $nice + $system;
+                return $total > 0 ? ($used / $total) * 100 : 0;
+            }
+        }
+    }
+    
+    # Fallback: try top command
+    my $cpu = `top -bn1 | grep "Cpu(s)" | sed "s/.*, *\\([0-9.]*\\)%* id.*/\\1/" | awk '{print 100 - \$1}'` || 0;
+    chomp $cpu;
+    return $cpu || 0;
+}
+
+# Auto-collect memory usage in MB
+sub _get_memory_mb {
+    my ($self) = @_;
+    
+    # Try /proc/meminfo (Linux)
+    if (-f '/proc/meminfo') {
+        my %mem;
+        if (open my $fh, '<', '/proc/meminfo') {
+            while (<$fh>) {
+                if (/^(\w+):\s+(\d+)/) {
+                    $mem{$1} = $2;
+                }
+            }
+            close $fh;
+            
+            if (exists $mem{MemTotal} && exists $mem{MemAvailable}) {
+                my $used_kb = $mem{MemTotal} - $mem{MemAvailable};
+                return $used_kb / 1024;  # Convert to MB
+            }
+        }
+    }
+    
+    # Fallback: try free command
+    my $mem = `free -m | grep Mem | awk '{print \$3}'` || 0;
+    chomp $mem;
+    return $mem || 0;
+}
+
+# Auto-collect disk I/O in MB
+sub _get_disk_io_mb {
+    my ($self) = @_;
+    
+    # Try /proc/diskstats (Linux)
+    if (-f '/proc/diskstats') {
+        if (open my $fh, '<', '/proc/diskstats') {
+            my $total_sectors = 0;
+            while (<$fh>) {
+                # Sum sectors read and written for all devices
+                if (/^\s*\d+\s+\d+\s+\S+\s+\d+\s+\d+\s+(\d+)\s+\d+\s+\d+\s+\d+\s+(\d+)/) {
+                    $total_sectors += ($1 + $2);  # read_sectors + write_sectors
+                }
+            }
+            close $fh;
+            # Convert sectors to MB (sector = 512 bytes typically)
+            return ($total_sectors * 512) / (1024 * 1024);
+        }
+    }
+    
+    return 0;  # Unable to determine
+}
+
+# Auto-collect network I/O in MB
+sub _get_network_io_mb {
+    my ($self) = @_;
+    
+    # Try /proc/net/dev (Linux)
+    if (-f '/proc/net/dev') {
+        if (open my $fh, '<', '/proc/net/dev') {
+            my $total_bytes = 0;
+            while (<$fh>) {
+                # Skip header lines
+                next if /^\s*(Inter-|face)/;
+                
+                # Sum received and transmitted bytes for all interfaces
+                if (/^\s*\S+:\s*(\d+)\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+\d+\s+(\d+)/) {
+                    $total_bytes += ($1 + $2);  # rx_bytes + tx_bytes
+                }
+            }
+            close $fh;
+            return $total_bytes / (1024 * 1024);  # Convert to MB
+        }
+    }
+    
+    return 0;  # Unable to determine
 }
 
 sub start_span {

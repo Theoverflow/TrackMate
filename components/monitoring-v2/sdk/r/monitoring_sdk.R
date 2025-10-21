@@ -130,18 +130,25 @@ MonitoringSDK <- R6Class("MonitoringSDK",
     },
     
     #' @description Log resource usage
-    #' @param cpu_percent CPU usage percentage
-    #' @param memory_mb Memory usage in MB
-    #' @param disk_io_mb Disk I/O in MB
-    #' @param network_io_mb Network I/O in MB
-    log_resource = function(cpu_percent, memory_mb, disk_io_mb, network_io_mb) {
+    #' @param cpu_percent CPU usage percentage (NULL for auto)
+    #' @param memory_mb Memory usage in MB (NULL for auto)
+    #' @param disk_io_mb Disk I/O in MB (NULL for auto)
+    #' @param network_io_mb Network I/O in MB (NULL for auto)
+    log_resource = function(cpu_percent = NULL, memory_mb = NULL, disk_io_mb = NULL, network_io_mb = NULL) {
+      # Auto-collect metrics if not provided
+      if (is.null(cpu_percent))    cpu_percent <- private$get_cpu_percent()
+      if (is.null(memory_mb))      memory_mb <- private$get_memory_mb()
+      if (is.null(disk_io_mb))     disk_io_mb <- private$get_disk_io_mb()
+      if (is.null(network_io_mb))  network_io_mb <- private$get_network_io_mb()
+      
       private$send_message(list(
         type = "resource",
         data = list(
           cpu = as.numeric(cpu_percent),
           mem = as.numeric(memory_mb),
           disk = as.numeric(disk_io_mb),
-          net = as.numeric(network_io_mb)
+          net = as.numeric(network_io_mb),
+          pid = Sys.getpid()
         )
       ))
     },
@@ -461,6 +468,96 @@ MonitoringSDK <- R6Class("MonitoringSDK",
     generate_id = function() {
       # Generate random 16-character ID
       paste0(sample(c(letters, LETTERS, 0:9), 16, replace = TRUE), collapse = "")
+    },
+    
+    # Auto-collect CPU usage percentage
+    get_cpu_percent = function() {
+      tryCatch({
+        if (file.exists("/proc/stat")) {
+          lines <- readLines("/proc/stat", n = 1)
+          vals <- as.numeric(strsplit(lines, "\\s+")[[1]][-1])
+          if (length(vals) >= 4) {
+            user <- vals[1]; nice <- vals[2]; system <- vals[3]; idle <- vals[4]
+            total <- user + nice + system + idle
+            used <- user + nice + system
+            return(if (total > 0) (used / total) * 100 else 0)
+          }
+        }
+        # Fallback: try system command
+        cpu_info <- system("top -bn1 | grep 'Cpu(s)'", intern = TRUE)
+        if (length(cpu_info) > 0) {
+          # Parse CPU idle and calculate used
+          idle <- as.numeric(sub(".*?([0-9.]+)%?.*id.*", "\\1", cpu_info[1]))
+          return(100 - idle)
+        }
+        return(0)
+      }, error = function(e) 0)
+    },
+    
+    # Auto-collect memory usage in MB
+    get_memory_mb = function() {
+      tryCatch({
+        if (file.exists("/proc/meminfo")) {
+          lines <- readLines("/proc/meminfo")
+          mem_total <- as.numeric(sub("MemTotal:\\s+(\\d+).*", "\\1", grep("MemTotal", lines, value = TRUE)))
+          mem_available <- as.numeric(sub("MemAvailable:\\s+(\\d+).*", "\\1", grep("MemAvailable", lines, value = TRUE)))
+          if (length(mem_total) > 0 && length(mem_available) > 0) {
+            used_kb <- mem_total - mem_available
+            return(used_kb / 1024)  # Convert to MB
+          }
+        }
+        # Fallback: try free command
+        mem_info <- system("free -m | grep Mem", intern = TRUE)
+        if (length(mem_info) > 0) {
+          vals <- as.numeric(strsplit(mem_info, "\\s+")[[1]])
+          if (length(vals) >= 3) return(vals[3])  # Used memory
+        }
+        return(0)
+      }, error = function(e) 0)
+    },
+    
+    # Auto-collect disk I/O in MB
+    get_disk_io_mb = function() {
+      tryCatch({
+        if (file.exists("/proc/diskstats")) {
+          lines <- readLines("/proc/diskstats")
+          total_sectors <- 0
+          for (line in lines) {
+            parts <- strsplit(trimws(line), "\\s+")[[1]]
+            if (length(parts) >= 10) {
+              read_sectors <- as.numeric(parts[6])
+              write_sectors <- as.numeric(parts[10])
+              total_sectors <- total_sectors + read_sectors + write_sectors
+            }
+          }
+          # Convert sectors to MB (sector = 512 bytes)
+          return((total_sectors * 512) / (1024 * 1024))
+        }
+        return(0)
+      }, error = function(e) 0)
+    },
+    
+    # Auto-collect network I/O in MB
+    get_network_io_mb = function() {
+      tryCatch({
+        if (file.exists("/proc/net/dev")) {
+          lines <- readLines("/proc/net/dev")
+          total_bytes <- 0
+          for (line in lines[-(1:2)]) {  # Skip header lines
+            parts <- strsplit(trimws(line), "\\s+")[[1]]
+            if (length(parts) >= 10) {
+              # RX bytes (column 2) + TX bytes (column 10)
+              rx_bytes <- as.numeric(sub(".*:", "", parts[1]))
+              if (!is.na(rx_bytes)) {
+                tx_bytes <- as.numeric(parts[9])
+                total_bytes <- total_bytes + rx_bytes + tx_bytes
+              }
+            }
+          }
+          return(total_bytes / (1024 * 1024))  # Convert to MB
+        }
+        return(0)
+      }, error = function(e) 0)
     }
   ),
   

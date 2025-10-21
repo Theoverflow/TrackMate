@@ -339,6 +339,92 @@ monitoring_error_t monitoring_log_progress(monitoring_sdk_t* sdk, const char* jo
     return result == 0 ? MONITORING_OK : MONITORING_ERROR_SEND;
 }
 
+/* Helper functions for auto-collecting metrics */
+static double get_cpu_percent() {
+    FILE* fp = fopen("/proc/stat", "r");
+    if (!fp) return 0.0;
+    
+    unsigned long user, nice, system, idle;
+    if (fscanf(fp, "cpu %lu %lu %lu %lu", &user, &nice, &system, &idle) == 4) {
+        fclose(fp);
+        unsigned long total = user + nice + system + idle;
+        unsigned long used = user + nice + system;
+        return total > 0 ? (double)used / total * 100.0 : 0.0;
+    }
+    
+    fclose(fp);
+    return 0.0;
+}
+
+static double get_memory_mb() {
+    FILE* fp = fopen("/proc/meminfo", "r");
+    if (!fp) return 0.0;
+    
+    char line[256];
+    unsigned long mem_total = 0, mem_available = 0;
+    
+    while (fgets(line, sizeof(line), fp)) {
+        if (sscanf(line, "MemTotal: %lu kB", &mem_total) == 1) continue;
+        if (sscanf(line, "MemAvailable: %lu kB", &mem_available) == 1) break;
+    }
+    
+    fclose(fp);
+    
+    if (mem_total > 0 && mem_available > 0) {
+        unsigned long used_kb = mem_total - mem_available;
+        return (double)used_kb / 1024.0;  // Convert to MB
+    }
+    
+    return 0.0;
+}
+
+static double get_disk_io_mb() {
+    FILE* fp = fopen("/proc/diskstats", "r");
+    if (!fp) return 0.0;
+    
+    char line[256];
+    unsigned long long total_sectors = 0;
+    unsigned long read_sectors, write_sectors;
+    
+    while (fgets(line, sizeof(line), fp)) {
+        // Format: major minor name ... sectors_read ... sectors_written ...
+        if (sscanf(line, "%*d %*d %*s %*d %*d %lu %*d %*d %*d %lu",
+                   &read_sectors, &write_sectors) == 2) {
+            total_sectors += (read_sectors + write_sectors);
+        }
+    }
+    
+    fclose(fp);
+    
+    // Convert sectors to MB (sector = 512 bytes)
+    return (double)(total_sectors * 512) / (1024.0 * 1024.0);
+}
+
+static double get_network_io_mb() {
+    FILE* fp = fopen("/proc/net/dev", "r");
+    if (!fp) return 0.0;
+    
+    char line[256];
+    unsigned long long total_bytes = 0;
+    unsigned long long rx_bytes, tx_bytes;
+    
+    // Skip header lines
+    fgets(line, sizeof(line), fp);
+    fgets(line, sizeof(line), fp);
+    
+    while (fgets(line, sizeof(line), fp)) {
+        // Format: interface: rx_bytes ... tx_bytes ...
+        if (sscanf(line, "%*s %llu %*d %*d %*d %*d %*d %*d %*d %llu",
+                   &rx_bytes, &tx_bytes) == 2) {
+            total_bytes += (rx_bytes + tx_bytes);
+        }
+    }
+    
+    fclose(fp);
+    
+    return (double)total_bytes / (1024.0 * 1024.0);  // Convert to MB
+}
+
 monitoring_error_t monitoring_log_resource(monitoring_sdk_t* sdk, double cpu_percent,
                                           double memory_mb, double disk_io_mb, double network_io_mb) {
     if (!sdk) {
@@ -347,9 +433,15 @@ monitoring_error_t monitoring_log_resource(monitoring_sdk_t* sdk, double cpu_per
     
     pthread_mutex_lock(&sdk->lock);
     
+    // Auto-collect metrics if negative values provided
+    if (cpu_percent < 0)    cpu_percent = get_cpu_percent();
+    if (memory_mb < 0)      memory_mb = get_memory_mb();
+    if (disk_io_mb < 0)     disk_io_mb = get_disk_io_mb();
+    if (network_io_mb < 0)  network_io_mb = get_network_io_mb();
+    
     char data[256];
-    snprintf(data, sizeof(data), "{\"cpu\":%.2f,\"mem\":%.2f,\"disk\":%.2f,\"net\":%.2f}",
-             cpu_percent, memory_mb, disk_io_mb, network_io_mb);
+    snprintf(data, sizeof(data), "{\"cpu\":%.2f,\"mem\":%.2f,\"disk\":%.2f,\"net\":%.2f,\"pid\":%d}",
+             cpu_percent, memory_mb, disk_io_mb, network_io_mb, (int)getpid());
     
     char msg[MONITORING_MAX_MESSAGE_LEN];
     int len = format_message(msg, sizeof(msg), sdk, "resource", data);
@@ -359,6 +451,10 @@ monitoring_error_t monitoring_log_resource(monitoring_sdk_t* sdk, double cpu_per
     pthread_mutex_unlock(&sdk->lock);
     
     return result == 0 ? MONITORING_OK : MONITORING_ERROR_SEND;
+}
+
+monitoring_error_t monitoring_log_resource_auto(monitoring_sdk_t* sdk) {
+    return monitoring_log_resource(sdk, -1, -1, -1, -1);
 }
 
 monitoring_error_t monitoring_start_span(monitoring_sdk_t* sdk, const char* name,

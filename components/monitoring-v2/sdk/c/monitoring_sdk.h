@@ -112,11 +112,13 @@ monitoring_error_t monitoring_log_progress(
 /**
  * Log resource usage
  * 
+ * If values are negative, automatically collects current system metrics
+ * 
  * @param sdk SDK handle
- * @param cpu_percent CPU usage percentage
- * @param memory_mb Memory usage in MB
- * @param disk_io_mb Disk I/O in MB
- * @param network_io_mb Network I/O in MB
+ * @param cpu_percent CPU usage percentage (-1 for auto)
+ * @param memory_mb Memory usage in MB (-1 for auto)
+ * @param disk_io_mb Disk I/O in MB (-1 for auto)
+ * @param network_io_mb Network I/O in MB (-1 for auto)
  * @return MONITORING_OK on success
  */
 monitoring_error_t monitoring_log_resource(
@@ -126,6 +128,14 @@ monitoring_error_t monitoring_log_resource(
     double disk_io_mb,
     double network_io_mb
 );
+
+/**
+ * Log resource usage (auto-collect all metrics)
+ * 
+ * @param sdk SDK handle
+ * @return MONITORING_OK on success
+ */
+monitoring_error_t monitoring_log_resource_auto(monitoring_sdk_t* sdk);
 
 /**
  * Start a distributed trace span

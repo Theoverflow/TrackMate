@@ -9,6 +9,8 @@ import socket
 import json
 import time
 import threading
+import os
+import psutil
 from enum import Enum
 from typing import Optional, Dict, Any, List
 from collections import deque
@@ -251,16 +253,51 @@ class MonitoringSDK:
             }
         })
     
-    def log_resource(self, cpu_percent: float, memory_mb: float, 
-                     disk_io_mb: float, network_io_mb: float) -> bool:
-        """Log resource usage"""
+    def log_resource(self, cpu_percent: Optional[float] = None, memory_mb: Optional[float] = None, 
+                     disk_io_mb: Optional[float] = None, network_io_mb: Optional[float] = None) -> bool:
+        """
+        Log resource usage
+        
+        If parameters are not provided, automatically collects current system metrics
+        """
+        # Auto-collect metrics if not provided
+        if cpu_percent is None:
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+        
+        if memory_mb is None:
+            mem = psutil.virtual_memory()
+            memory_mb = mem.used / (1024 * 1024)  # Convert to MB
+        
+        if disk_io_mb is None:
+            try:
+                disk_io = psutil.disk_io_counters()
+                if disk_io:
+                    # Read + Write in MB
+                    disk_io_mb = (disk_io.read_bytes + disk_io.write_bytes) / (1024 * 1024)
+                else:
+                    disk_io_mb = 0.0
+            except:
+                disk_io_mb = 0.0
+        
+        if network_io_mb is None:
+            try:
+                net_io = psutil.net_io_counters()
+                if net_io:
+                    # Sent + Received in MB
+                    network_io_mb = (net_io.bytes_sent + net_io.bytes_recv) / (1024 * 1024)
+                else:
+                    network_io_mb = 0.0
+            except:
+                network_io_mb = 0.0
+        
         return self._send_message({
             'type': 'resource',
             'data': {
                 'cpu': float(cpu_percent),
                 'mem': float(memory_mb),
                 'disk': float(disk_io_mb),
-                'net': float(network_io_mb)
+                'net': float(network_io_mb),
+                'pid': os.getpid()
             }
         })
     
