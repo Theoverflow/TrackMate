@@ -1,0 +1,70 @@
+# Sidecar Configuration Example
+# For Perl application with 3 services + script
+
+tcp:
+  host: "127.0.0.1"
+  port: 17000
+  max_connections: 100
+
+buffers:
+  max_queue_size: 10000
+  per_source_buffer: 1000
+  flush_interval: 5        # Flush every 5 seconds
+  flush_batch_size: 100    # Or when 100 messages buffered
+
+backends:
+  # Local filesystem for all events
+  filesystem:
+    type: filesystem
+    enabled: true
+    config:
+      base_path: /tmp/monitoring-logs
+      rotate_daily: true
+  
+  # TimescaleDB for metrics and important events
+  timescaledb:
+    type: timescaledb
+    enabled: false  # Enable when TimescaleDB is available
+    config:
+      connection_string: "postgresql://user:pass@localhost:5432/monitoring"
+      table: monitoring_events
+
+routing:
+  # Config service: Log to filesystem only
+  config-service:
+    - backend: filesystem
+      enabled: true
+      priority: 1
+  
+  # File receiver: Log everything to filesystem
+  file-receiver:
+    - backend: filesystem
+      enabled: true
+      priority: 1
+      filter:
+        types: [event, metric]
+  
+  # Queue service: Log to filesystem (and TimescaleDB if enabled)
+  queue-service:
+    - backend: filesystem
+      enabled: true
+      priority: 1
+    
+    - backend: timescaledb
+      enabled: false
+      priority: 2
+      filter:
+        types: [metric, progress]
+  
+  # DB loader: Log to filesystem
+  db-loader:
+    - backend: filesystem
+      enabled: true
+      priority: 1
+  
+  # Default: All other sources go to filesystem
+  default:
+    - backend: filesystem
+      enabled: true
+      priority: 1
+
