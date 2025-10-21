@@ -1,0 +1,269 @@
+# Monitoring Sidecar Configuration Template
+# Copy this to config/sidecar.yaml and customize for your environment
+
+version: "1.0"
+
+# TCP Listener Configuration
+listener:
+  host: "0.0.0.0"
+  port: 17000
+  max_connections: 1000
+  buffer_size: 10000
+  timeout: 30
+
+# Management API Configuration
+api:
+  host: "0.0.0.0"
+  port: 17001
+  enabled: true
+  auth:
+    enabled: false
+    api_key: "your-api-key-here"
+
+# Backend Configuration
+backends:
+  # TimescaleDB Backend (Primary)
+  timescaledb:
+    enabled: true
+    priority: 1
+    connection:
+      host: "timescaledb"  # Docker service name or hostname
+      port: 5432
+      database: "monitoring"
+      user: "monitoring_user"
+      password: "monitoring_password"
+      pool_size: 10
+      pool_timeout: 5
+    batch_size: 100
+    flush_interval: 5
+    retry:
+      max_attempts: 3
+      backoff_seconds: 2
+
+  # Filesystem Backend (Backup)
+  filesystem:
+    enabled: true
+    priority: 2
+    path: "/app/data/monitoring"
+    format: "jsonl"  # jsonl, json, csv
+    rotation:
+      enabled: true
+      max_size_mb: 100
+      max_files: 10
+      compress: true
+    buffer_size: 1000
+
+  # S3 Backend (Archive)
+  s3:
+    enabled: false
+    priority: 3
+    bucket: "monitoring-data"
+    region: "us-east-1"
+    prefix: "sidecar/"
+    credentials:
+      access_key_id: ""
+      secret_access_key: ""
+      # Or use IAM role
+      use_iam_role: true
+    batch_size: 500
+    flush_interval: 60
+    compression: gzip
+
+  # Elasticsearch/ELK Backend (Analytics)
+  elk:
+    enabled: false
+    priority: 4
+    elasticsearch:
+      hosts:
+        - "http://elasticsearch:9200"
+      index: "monitoring"
+      index_pattern: "monitoring-%Y.%m.%d"
+      bulk_size: 500
+      flush_interval: 10
+    credentials:
+      username: "elastic"
+      password: "changeme"
+
+  # CloudWatch Backend (AWS)
+  cloudwatch:
+    enabled: false
+    priority: 5
+    region: "us-east-1"
+    namespace: "Monitoring"
+    credentials:
+      access_key_id: ""
+      secret_access_key: ""
+      use_iam_role: true
+
+  # Kafka Backend (Stream)
+  kafka:
+    enabled: false
+    priority: 6
+    brokers:
+      - "kafka:9092"
+    topic: "monitoring-events"
+    compression: "snappy"
+    batch_size: 1000
+
+# Correlation Engine Configuration
+correlation:
+  enabled: true
+  trace_timeout: 300  # seconds
+  max_traces: 10000
+  trace_sampling: 1.0  # 1.0 = 100%, 0.1 = 10%
+
+# Routing Rules
+routing:
+  # Default routing (applies to all sources without specific rules)
+  default:
+    backends:
+      - timescaledb
+      - filesystem
+    filters:
+      # Only route errors and warnings
+      min_level: "info"  # debug, info, warn, error, fatal
+  
+  # Global rules (apply to all sources)
+  global:
+    backends:
+      - timescaledb
+    filters:
+      types:  # Event types to route
+        - event
+        - metric
+        - resource
+        - progress
+  
+  # Per-service routing rules
+  services:
+    # Example: Critical service with redundancy
+    critical-service:
+      backends:
+        - timescaledb
+        - s3
+        - filesystem
+      filters:
+        min_level: "warn"
+    
+    # Example: Analytics service to ELK
+    analytics-service:
+      backends:
+        - elk
+        - filesystem
+      filters:
+        types:
+          - metric
+          - resource
+    
+    # Example: Development service (filesystem only)
+    dev-service:
+      backends:
+        - filesystem
+      filters:
+        min_level: "debug"
+
+# Data Transformation Rules
+transformation:
+  enabled: true
+  rules:
+    # Example: Enrich events with environment info
+    - name: "add_environment"
+      type: "enrich"
+      fields:
+        environment: "production"
+        cluster: "main"
+    
+    # Example: Filter out noisy debug events
+    - name: "filter_debug"
+      type: "filter"
+      condition: "level == 'debug' and source != 'critical-service'"
+      action: "drop"
+    
+    # Example: Aggregate metrics
+    - name: "aggregate_metrics"
+      type: "aggregate"
+      window: 60  # seconds
+      metrics:
+        - "request_count"
+        - "error_count"
+
+# Buffer Configuration
+buffer:
+  enabled: true
+  max_size: 50000
+  flush_on_shutdown: true
+  persistence:
+    enabled: true
+    path: "/app/data/buffer"
+    sync_interval: 10
+
+# Hot Reload Configuration
+hot_reload:
+  enabled: true
+  watch_interval: 5  # seconds
+  reload_on_change: true
+
+# Monitoring and Metrics
+monitoring:
+  enabled: true
+  prometheus:
+    enabled: true
+    port: 9090
+    path: "/metrics"
+  health_check:
+    enabled: true
+    interval: 30
+  statistics:
+    enabled: true
+    interval: 60
+
+# Logging Configuration
+logging:
+  level: "info"  # debug, info, warn, error, fatal
+  format: "json"  # json, text
+  output: "stdout"  # stdout, file, both
+  file:
+    path: "/app/logs/sidecar.log"
+    rotation:
+      enabled: true
+      max_size_mb: 50
+      max_files: 5
+      compress: true
+
+# Security Configuration
+security:
+  tls:
+    enabled: false
+    cert_file: "/app/config/server.crt"
+    key_file: "/app/config/server.key"
+    ca_file: "/app/config/ca.crt"
+  rate_limiting:
+    enabled: true
+    max_connections_per_ip: 100
+    max_requests_per_second: 1000
+
+# Circuit Breaker Configuration
+circuit_breaker:
+  enabled: true
+  failure_threshold: 5
+  success_threshold: 2
+  timeout: 60
+  half_open_requests: 3
+
+# Performance Tuning
+performance:
+  worker_threads: 4
+  io_threads: 2
+  max_batch_size: 1000
+  batch_timeout: 1000  # milliseconds
+  connection_pool_size: 20
+  keepalive_timeout: 60
+
+# Feature Flags
+features:
+  job_analysis: true
+  distributed_tracing: true
+  auto_scaling: false
+  data_compression: true
+  encryption: false
+

@@ -1,0 +1,13 @@
+# Ignore generated directories and files
+config/
+data/
+logs/
+
+# Ignore environment files
+.env
+
+# Ignore temporary files
+*.tmp
+*.log
+*.pid
+

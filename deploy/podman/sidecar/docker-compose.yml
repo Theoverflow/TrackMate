@@ -1,0 +1,102 @@
+version: '3.8'
+
+services:
+  sidecar:
+    container_name: monitoring-sidecar
+    build:
+      context: ../../../components/monitoring-v2/sidecar
+      dockerfile: Dockerfile
+    image: monitoring-sidecar:latest
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Network configuration
+    ports:
+      - "17000:17000"  # TCP socket for SDK connections
+      - "17001:17001"  # HTTP API for management
+    
+    # Volume mounts
+    volumes:
+      # Configuration directory (host-accessible)
+      - sidecar-config:/app/config:rw
+      # Data directory for buffering
+      - sidecar-data:/app/data:rw
+      # Logs directory (optional)
+      - sidecar-logs:/app/logs:rw
+    
+    # Environment variables
+    environment:
+      # Sidecar configuration
+      - SIDECAR_HOST=0.0.0.0
+      - SIDECAR_PORT=17000
+      - SIDECAR_API_PORT=17001
+      
+      # Configuration file path (in container)
+      - SIDECAR_CONFIG_FILE=/app/config/sidecar.yaml
+      
+      # Enable hot reload of configuration
+      - SIDECAR_HOT_RELOAD=true
+      - SIDECAR_CONFIG_WATCH_INTERVAL=5
+      
+      # Logging
+      - LOG_LEVEL=info
+      - LOG_FILE=/app/logs/sidecar.log
+      
+      # Performance tuning
+      - MAX_CONNECTIONS=1000
+      - BUFFER_SIZE=10000
+      - WORKER_THREADS=4
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:17001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    
+    # User (non-root)
+    # user: "1000:1000"
+
+volumes:
+  sidecar-config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/config
+  
+  sidecar-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/data
+  
+  sidecar-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/logs
+
+networks:
+  default:
+    name: monitoring-network
+    driver: bridge
+
